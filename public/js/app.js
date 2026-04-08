@@ -1343,36 +1343,448 @@ function pdvSuprimento() {
 async function salvarSuprimento() { try { await api('/api/caixa/suprimento', { method: 'POST', body: { valor: Number(document.getElementById('suprimentoValor').value), motivo: document.getElementById('suprimentoMotivo').value || null } }); toast('Suprimento registrado'); fecharModal(); } catch(e) {} }
 
 // ============ RELATORIOS ============
+
+// Helper: exportar para CSV
+function exportarCSV(dados, colunas, titulo) {
+  if (!dados || !dados.length) return toast('Sem dados para exportar', 'warning');
+  var header = colunas.map(function(c){return c.label;}).join(';');
+  var rows = dados.map(function(row) {
+    return colunas.map(function(c) {
+      var val = row[c.key];
+      if (val === null || val === undefined) val = '';
+      if (typeof val === 'number' && c.money) val = val.toFixed(2).replace('.', ',');
+      if (typeof val === 'string' && val.indexOf(';') >= 0) val = '"' + val + '"';
+      return val;
+    }).join(';');
+  });
+  var csv = '\uFEFF' + header + '\n' + rows.join('\n');
+  var blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = (titulo || 'relatorio') + '.csv';
+  link.click();
+  toast('Arquivo CSV exportado!');
+}
+
+// Helper: exportar para PDF via impressão
+function exportarPDF(titulo, conteudoHtml) {
+  var w = window.open('', '_blank', 'width=900,height=700');
+  w.document.write('<html><head><style>' +
+    'body{font-family:Arial,sans-serif;font-size:12px;padding:20px;color:#000;background:#fff}' +
+    'h1{font-size:18px;margin-bottom:4px}h2{font-size:14px;color:#555}' +
+    'table{width:100%;border-collapse:collapse;margin:10px 0}' +
+    'th,td{border:1px solid #ccc;padding:6px;text-align:left;font-size:11px}' +
+    'th{background:#f0f0f0;font-weight:bold}' +
+    '.right{text-align:right}.center{text-align:center}' +
+    '.total-row{font-weight:bold;background:#e8e8e8}' +
+    '.cards{display:flex;gap:16px;margin:12px 0}' +
+    '.card-s{border:1px solid #ccc;padding:12px;border-radius:4px;text-align:center;flex:1}' +
+    '.card-s .val{font-size:20px;font-weight:bold}.card-s .lbl{font-size:10px;color:#666}' +
+    '.bar-chart{display:flex;align-items:flex-end;gap:4px;height:120px;margin:10px 0}' +
+    '.bar-item{display:flex;flex-direction:column;align-items:center;flex:1}' +
+    '.bar-fill{width:100%;background:#4f9cf7;border-radius:2px 2px 0 0;min-height:2px}' +
+    '.bar-label{font-size:9px;margin-top:2px;color:#666}' +
+    '.bar-value{font-size:9px;color:#333}' +
+    '.badge-a{background:#34d399;color:#fff;padding:2px 6px;border-radius:3px;font-size:10px}' +
+    '.badge-b{background:#fbbf24;color:#000;padding:2px 6px;border-radius:3px;font-size:10px}' +
+    '.badge-c{background:#f87171;color:#fff;padding:2px 6px;border-radius:3px;font-size:10px}' +
+    '</style></head><body>');
+  w.document.write('<h1>' + titulo + '</h1>');
+  w.document.write('<h2>Supermercado Peres - ' + new Date().toLocaleDateString('pt-BR') + '</h2>');
+  w.document.write(conteudoHtml);
+  w.document.write('<script>setTimeout(function(){window.print();},400);<\/script></body></html>');
+}
+
+// Helper: gerar barras HTML
+function gerarBarrasHtml(dados, labelKey, valueKey, color) {
+  var max = Math.max.apply(null, dados.map(function(d){return d[valueKey]||0;}));
+  if (max < 1) max = 1;
+  return '<div class="rel-chart">' + dados.map(function(d) {
+    var pct = ((d[valueKey]||0) / max) * 100;
+    return '<div class="rel-chart-item"><div class="rel-chart-bar" style="height:' + pct + '%;background:' + (color||'var(--primary)') + '" title="' + formatMoney(d[valueKey]||0) + '"></div><div class="rel-chart-label">' + d[labelKey] + '</div><div class="rel-chart-value">' + formatMoney(d[valueKey]||0) + '</div></div>';
+  }).join('') + '</div>';
+}
+
+// --- VENDAS POR PERÍODO ---
 async function relatorioVendas() {
   document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><h3>Relatorio de Vendas</h3><div class="form-row mt-1"><div class="form-group"><label>Data Inicio</label><input class="form-control" id="relVendasDi" type="date"></div><div class="form-group"><label>Data Fim</label><input class="form-control" id="relVendasDf" type="date"></div><div class="form-group"><label>Agrupamento</label><select class="form-control" id="relVendasAgrup"><option value="dia">Por Dia</option><option value="mes">Por Mes</option></select></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="gerarRelVendas()">Gerar</button></div></div><div id="relVendasResult"></div></div>';
 }
+var _relVendasData = [];
 async function gerarRelVendas() {
   try {
     var data = await api('/api/relatorios/vendas?data_inicio=' + document.getElementById('relVendasDi').value + '&data_fim=' + document.getElementById('relVendasDf').value + '&agrupamento=' + document.getElementById('relVendasAgrup').value);
+    _relVendasData = data;
     var totalV = data.reduce(function(a,d){return a+d.total_vendas;},0);
-    document.getElementById('relVendasResult').innerHTML = '<div class="flex-between mt-2 mb-2"><strong>Total: ' + formatMoney(totalV) + '</strong></div><table><thead><tr><th>Periodo</th><th>Qtd</th><th>Total</th><th>Descontos</th><th>Ticket Medio</th></tr></thead><tbody>' + data.map(function(d){return '<tr><td>' + d.periodo + '</td><td>' + d.qtd_vendas + '</td><td><strong>' + formatMoney(d.total_vendas) + '</strong></td><td>' + formatMoney(d.total_descontos) + '</td><td>' + formatMoney(d.ticket_medio) + '</td></tr>';}).join('') + '</tbody></table>';
+    var totalQ = data.reduce(function(a,d){return a+d.qtd_vendas;},0);
+    var html = '<div class="cards-grid mt-2" style="grid-template-columns:repeat(3,1fr)"><div class="card card-stat primary"><div class="stat-value">' + formatMoney(totalV) + '</div><div class="stat-label">Total Vendas</div></div><div class="card card-stat success"><div class="stat-value">' + totalQ + '</div><div class="stat-label">Qtd Vendas</div></div><div class="card card-stat warning"><div class="stat-value">' + formatMoney(totalQ > 0 ? totalV/totalQ : 0) + '</div><div class="stat-label">Ticket Medio</div></div></div>';
+    html += gerarBarrasHtml(data.slice(-30), 'periodo', 'total_vendas', 'var(--primary)');
+    html += '<table><thead><tr><th>Periodo</th><th>Qtd</th><th>Total</th><th>Descontos</th><th>Ticket Medio</th></tr></thead><tbody>' + data.map(function(d){return '<tr><td>' + d.periodo + '</td><td>' + d.qtd_vendas + '</td><td><strong>' + formatMoney(d.total_vendas) + '</strong></td><td>' + formatMoney(d.total_descontos) + '</td><td>' + formatMoney(d.ticket_medio) + '</td></tr>';}).join('') + '</tbody></table>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarRelVendasCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarRelVendasPDF()">Exportar PDF</button></div>';
+    document.getElementById('relVendasResult').innerHTML = html;
   } catch(e) {}
 }
+function exportarRelVendasCSV() {
+  exportarCSV(_relVendasData, [
+    {key:'periodo',label:'Periodo'},{key:'qtd_vendas',label:'Qtd'},{key:'total_vendas',label:'Total',money:true},
+    {key:'total_descontos',label:'Descontos',money:true},{key:'ticket_medio',label:'Ticket Medio',money:true}
+  ], 'relatorio_vendas');
+}
+function exportarRelVendasPDF() {
+  var totalV = _relVendasData.reduce(function(a,d){return a+d.total_vendas;},0);
+  var html = '<div class="cards"><div class="card-s"><div class="val">' + formatMoney(totalV) + '</div><div class="lbl">Total Vendas</div></div></div>';
+  html += '<table><thead><tr><th>Periodo</th><th>Qtd</th><th class="right">Total</th><th class="right">Descontos</th><th class="right">Ticket Medio</th></tr></thead><tbody>';
+  _relVendasData.forEach(function(d) { html += '<tr><td>' + d.periodo + '</td><td>' + d.qtd_vendas + '</td><td class="right">' + formatMoney(d.total_vendas) + '</td><td class="right">' + formatMoney(d.total_descontos) + '</td><td class="right">' + formatMoney(d.ticket_medio) + '</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Relatorio de Vendas', html);
+}
+
+// --- COMPARATIVO MENSAL ---
+async function relatorioComparativoMensal() {
+  try {
+    var data = await api('/api/relatorios/comparativo-mensal');
+    var nomesMes = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    data.forEach(function(d) { var parts = d.mes.split('-'); d.mes_nome = nomesMes[Number(parts[1])] + '/' + parts[0].slice(2); });
+    var html = '<div class="card mt-2"><h3 style="margin-bottom:12px">Comparativo Mensal - Ultimos 12 Meses</h3>';
+    html += gerarBarrasHtml(data, 'mes_nome', 'total_vendas', 'var(--primary)');
+    html += '<table><thead><tr><th>Mes</th><th>Qtd Vendas</th><th>Total</th><th>Descontos</th><th>Ticket Medio</th><th>Variacao</th></tr></thead><tbody>';
+    data.forEach(function(d, i) {
+      var variacao = i > 0 && data[i-1].total_vendas > 0 ? ((d.total_vendas - data[i-1].total_vendas) / data[i-1].total_vendas * 100).toFixed(1) : '-';
+      var varClass = variacao !== '-' ? (Number(variacao) >= 0 ? 'text-success' : 'text-danger') : '';
+      var varStr = variacao !== '-' ? (Number(variacao) >= 0 ? '+' : '') + variacao + '%' : '-';
+      html += '<tr><td><strong>' + d.mes_nome + '</strong></td><td>' + d.qtd_vendas + '</td><td><strong>' + formatMoney(d.total_vendas) + '</strong></td><td>' + formatMoney(d.total_descontos) + '</td><td>' + formatMoney(d.ticket_medio) + '</td><td class="' + varClass + '"><strong>' + varStr + '</strong></td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarComparativoCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarComparativoPDF()">Exportar PDF</button></div>';
+    html += '</div>';
+    document.getElementById('relatorioContent').innerHTML = html;
+    window._relCompData = data;
+  } catch(e) { console.error(e); }
+}
+function exportarComparativoCSV() {
+  exportarCSV(window._relCompData, [
+    {key:'mes',label:'Mes'},{key:'qtd_vendas',label:'Qtd'},{key:'total_vendas',label:'Total',money:true},
+    {key:'total_descontos',label:'Descontos',money:true},{key:'ticket_medio',label:'Ticket Medio',money:true}
+  ], 'comparativo_mensal');
+}
+function exportarComparativoPDF() {
+  var html = '<table><thead><tr><th>Mes</th><th>Qtd</th><th class="right">Total</th><th class="right">Ticket Medio</th></tr></thead><tbody>';
+  window._relCompData.forEach(function(d) { html += '<tr><td>' + d.mes_nome + '</td><td>' + d.qtd_vendas + '</td><td class="right">' + formatMoney(d.total_vendas) + '</td><td class="right">' + formatMoney(d.ticket_medio) + '</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Comparativo Mensal', html);
+}
+
+// --- MARGEM DE LUCRO ---
+async function relatorioMargemLucro() {
+  document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><h3>Margem de Lucro Real</h3><div class="form-row mt-1"><div class="form-group"><label>Data Inicio</label><input class="form-control" id="relMargemDi" type="date"></div><div class="form-group"><label>Data Fim</label><input class="form-control" id="relMargemDf" type="date"></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="gerarRelMargem()">Gerar</button></div></div><div id="relMargemResult"></div></div>';
+}
+async function gerarRelMargem() {
+  try {
+    var di = document.getElementById('relMargemDi').value;
+    var df = document.getElementById('relMargemDf').value;
+    var data = await api('/api/relatorios/margem-lucro?data_inicio=' + di + '&data_fim=' + df);
+    var cats = await api('/api/relatorios/margem-categoria?data_inicio=' + di + '&data_fim=' + df);
+    window._relMargemData = data.produtos;
+    window._relMargemCats = cats;
+
+    var t = data.totais;
+    var html = '<div class="cards-grid mt-2" style="grid-template-columns:repeat(4,1fr)">';
+    html += '<div class="card card-stat primary"><div class="stat-value">' + formatMoney(t.receita) + '</div><div class="stat-label">Receita Total</div></div>';
+    html += '<div class="card card-stat warning"><div class="stat-value">' + formatMoney(t.custo) + '</div><div class="stat-label">Custo Total</div></div>';
+    html += '<div class="card card-stat success"><div class="stat-value">' + formatMoney(t.lucro) + '</div><div class="stat-label">Lucro Total</div></div>';
+    html += '<div class="card card-stat ' + (t.margem_pct >= 20 ? 'success' : t.margem_pct >= 10 ? 'warning' : 'danger') + '"><div class="stat-value">' + t.margem_pct + '%</div><div class="stat-label">Margem Geral</div></div>';
+    html += '</div>';
+
+    // Margem por categoria
+    html += '<h4 style="margin:16px 0 8px">Margem por Categoria</h4>';
+    html += '<table><thead><tr><th>Categoria</th><th>Produtos</th><th>Receita</th><th>Custo</th><th>Lucro</th><th>Margem</th></tr></thead><tbody>';
+    cats.forEach(function(c) {
+      var margemClass = c.margem_pct >= 20 ? 'text-success' : c.margem_pct >= 10 ? 'text-warning' : 'text-danger';
+      html += '<tr><td><strong>' + c.categoria + '</strong></td><td>' + c.qtd_produtos + '</td><td>' + formatMoney(c.receita_total) + '</td><td>' + formatMoney(c.custo_total) + '</td><td><strong>' + formatMoney(c.lucro_total) + '</strong></td><td class="' + margemClass + '"><strong>' + c.margem_pct + '%</strong></td></tr>';
+    });
+    html += '</tbody></table>';
+
+    // Margem por produto
+    html += '<h4 style="margin:16px 0 8px">Margem por Produto</h4>';
+    html += '<table><thead><tr><th>Produto</th><th>Categoria</th><th>Qtd</th><th>Receita</th><th>Custo</th><th>Lucro</th><th>Margem</th></tr></thead><tbody>';
+    data.produtos.forEach(function(p) {
+      var margemClass = p.margem_pct >= 20 ? 'text-success' : p.margem_pct >= 10 ? 'text-warning' : 'text-danger';
+      html += '<tr><td>' + p.nome_produto + '</td><td>' + (p.categoria||'-') + '</td><td>' + p.qtd_vendida + '</td><td>' + formatMoney(p.receita_total) + '</td><td>' + formatMoney(p.custo_total) + '</td><td><strong>' + formatMoney(p.lucro_total) + '</strong></td><td class="' + margemClass + '"><strong>' + p.margem_pct + '%</strong></td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarMargemCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarMargemPDF()">Exportar PDF</button></div>';
+    document.getElementById('relMargemResult').innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+function exportarMargemCSV() {
+  exportarCSV(window._relMargemData, [
+    {key:'nome_produto',label:'Produto'},{key:'categoria',label:'Categoria'},{key:'qtd_vendida',label:'Qtd'},
+    {key:'receita_total',label:'Receita',money:true},{key:'custo_total',label:'Custo',money:true},
+    {key:'lucro_total',label:'Lucro',money:true},{key:'margem_pct',label:'Margem %'}
+  ], 'margem_lucro');
+}
+function exportarMargemPDF() {
+  var html = '<table><thead><tr><th>Produto</th><th>Categoria</th><th>Qtd</th><th class="right">Receita</th><th class="right">Custo</th><th class="right">Lucro</th><th class="right">Margem</th></tr></thead><tbody>';
+  window._relMargemData.forEach(function(p) { html += '<tr><td>' + p.nome_produto + '</td><td>' + (p.categoria||'-') + '</td><td>' + p.qtd_vendida + '</td><td class="right">' + formatMoney(p.receita_total) + '</td><td class="right">' + formatMoney(p.custo_total) + '</td><td class="right">' + formatMoney(p.lucro_total) + '</td><td class="right">' + p.margem_pct + '%</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Margem de Lucro', html);
+}
+
+// --- CURVA ABC ---
+async function relatorioCurvaABC() {
+  document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><h3>Curva ABC de Produtos</h3><div class="form-row mt-1"><div class="form-group"><label>Data Inicio</label><input class="form-control" id="relAbcDi" type="date"></div><div class="form-group"><label>Data Fim</label><input class="form-control" id="relAbcDf" type="date"></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="gerarRelABC()">Gerar</button></div></div><div id="relAbcResult"></div></div>';
+}
+async function gerarRelABC() {
+  try {
+    var di = document.getElementById('relAbcDi').value;
+    var df = document.getElementById('relAbcDf').value;
+    var data = await api('/api/relatorios/curva-abc?data_inicio=' + di + '&data_fim=' + df);
+    window._relAbcData = data.produtos;
+    var r = data.resumo;
+
+    var html = '<div class="cards-grid mt-2" style="grid-template-columns:repeat(4,1fr)">';
+    html += '<div class="card card-stat success"><div class="stat-value">' + r.A + '</div><div class="stat-label">Classe A (80%)</div></div>';
+    html += '<div class="card card-stat warning"><div class="stat-value">' + r.B + '</div><div class="stat-label">Classe B (15%)</div></div>';
+    html += '<div class="card card-stat danger"><div class="stat-value">' + r.C + '</div><div class="stat-label">Classe C (5%)</div></div>';
+    html += '<div class="card card-stat primary"><div class="stat-value">' + formatMoney(r.total_geral) + '</div><div class="stat-label">Faturamento Total</div></div>';
+    html += '</div>';
+
+    // Barra visual da curva
+    var pctA = r.A / (r.A + r.B + r.C) * 100 || 0;
+    var pctB = r.B / (r.A + r.B + r.C) * 100 || 0;
+    var pctC = r.C / (r.A + r.B + r.C) * 100 || 0;
+    html += '<div style="display:flex;height:24px;border-radius:var(--radius);overflow:hidden;margin:12px 0"><div style="width:' + pctA + '%;background:var(--success)" title="Classe A: ' + r.A + ' produtos"></div><div style="width:' + pctB + '%;background:var(--warning)" title="Classe B: ' + r.B + ' produtos"></div><div style="width:' + pctC + '%;background:var(--danger)" title="Classe C: ' + r.C + ' produtos"></div></div>';
+    html += '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px"><span style="color:var(--success)">&#x25CF; A: ' + r.A + ' (' + pctA.toFixed(0) + '% dos produtos = 80% faturamento)</span><span style="color:var(--warning)">&#x25CF; B: ' + r.B + ' (' + pctB.toFixed(0) + '% = 15%)</span><span style="color:var(--danger)">&#x25CF; C: ' + r.C + ' (' + pctC.toFixed(0) + '% = 5%)</span></div>';
+
+    html += '<table><thead><tr><th>#</th><th>Produto</th><th>Qtd</th><th>Total</th><th>% Individual</th><th>% Acumulado</th><th>Classe</th></tr></thead><tbody>';
+    data.produtos.forEach(function(p) {
+      var badgeClass = p.classe === 'A' ? 'status-success' : p.classe === 'B' ? 'status-warning' : 'status-danger';
+      html += '<tr><td>' + p.posicao + '</td><td>' + p.nome_produto + '</td><td>' + p.qtd_vendida + '</td><td><strong>' + formatMoney(p.total_vendido) + '</strong></td><td>' + p.pct_individual + '%</td><td>' + p.pct_acumulado + '%</td><td><span class="status ' + badgeClass + '">' + p.classe + '</span></td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarAbcCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarAbcPDF()">Exportar PDF</button></div>';
+    document.getElementById('relAbcResult').innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+function exportarAbcCSV() {
+  exportarCSV(window._relAbcData, [
+    {key:'posicao',label:'#'},{key:'nome_produto',label:'Produto'},{key:'qtd_vendida',label:'Qtd'},
+    {key:'total_vendido',label:'Total',money:true},{key:'pct_individual',label:'% Individual'},
+    {key:'pct_acumulado',label:'% Acumulado'},{key:'classe',label:'Classe'}
+  ], 'curva_abc');
+}
+function exportarAbcPDF() {
+  var html = '<table><thead><tr><th>#</th><th>Produto</th><th>Qtd</th><th class="right">Total</th><th class="right">%</th><th class="right">% Acum.</th><th class="center">Classe</th></tr></thead><tbody>';
+  window._relAbcData.forEach(function(p) {
+    var badge = p.classe === 'A' ? 'badge-a' : p.classe === 'B' ? 'badge-b' : 'badge-c';
+    html += '<tr><td>' + p.posicao + '</td><td>' + p.nome_produto + '</td><td>' + p.qtd_vendida + '</td><td class="right">' + formatMoney(p.total_vendido) + '</td><td class="right">' + p.pct_individual + '%</td><td class="right">' + p.pct_acumulado + '%</td><td class="center"><span class="' + badge + '">' + p.classe + '</span></td></tr>';
+  });
+  html += '</tbody></table>';
+  exportarPDF('Curva ABC de Produtos', html);
+}
+
+// --- ESTOQUE ---
 async function relatorioEstoque() {
   try {
     var data = await api('/api/relatorios/estoque');
-    document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><div class="flex-between mb-2"><h3>Posicao de Estoque</h3></div><div class="cards-grid"><div class="card card-stat primary"><div class="stat-value">' + data.produtos.length + '</div><div class="stat-label">Produtos</div></div><div class="card card-stat warning"><div class="stat-value">' + formatMoney(data.total_custo) + '</div><div class="stat-label">Valor Custo</div></div><div class="card card-stat success"><div class="stat-value">' + formatMoney(data.total_venda) + '</div><div class="stat-label">Valor Venda</div></div></div><table><thead><tr><th>Produto</th><th>Categoria</th><th>Estoque</th><th>Custo</th><th>Valor Custo</th><th>Valor Venda</th></tr></thead><tbody>' + data.produtos.map(function(p){return '<tr><td>' + p.nome + '</td><td>' + (p.categoria_nome||'-') + '</td><td>' + p.estoque_atual + ' ' + p.unidade + '</td><td>' + formatMoney(p.preco_custo) + '</td><td>' + formatMoney(p.valor_estoque_custo) + '</td><td>' + formatMoney(p.valor_estoque_venda) + '</td></tr>';}).join('') + '</tbody></table></div>';
+    window._relEstoqueData = data.produtos;
+    document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><div class="flex-between mb-2"><h3>Posicao de Estoque</h3><div style="display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarEstoqueCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarEstoquePDF()">Exportar PDF</button></div></div><div class="cards-grid"><div class="card card-stat primary"><div class="stat-value">' + data.produtos.length + '</div><div class="stat-label">Produtos</div></div><div class="card card-stat warning"><div class="stat-value">' + formatMoney(data.total_custo) + '</div><div class="stat-label">Valor Custo</div></div><div class="card card-stat success"><div class="stat-value">' + formatMoney(data.total_venda) + '</div><div class="stat-label">Valor Venda</div></div><div class="card card-stat primary"><div class="stat-value">' + formatMoney(data.total_venda - data.total_custo) + '</div><div class="stat-label">Lucro Potencial</div></div></div><table><thead><tr><th>Produto</th><th>Categoria</th><th>Estoque</th><th>Custo</th><th>Valor Custo</th><th>Valor Venda</th></tr></thead><tbody>' + data.produtos.map(function(p){return '<tr><td>' + p.nome + '</td><td>' + (p.categoria_nome||'-') + '</td><td>' + p.estoque_atual + ' ' + p.unidade + '</td><td>' + formatMoney(p.preco_custo) + '</td><td>' + formatMoney(p.valor_estoque_custo) + '</td><td>' + formatMoney(p.valor_estoque_venda) + '</td></tr>';}).join('') + '</tbody></table></div>';
   } catch(e) {}
 }
+function exportarEstoqueCSV() {
+  exportarCSV(window._relEstoqueData, [
+    {key:'nome',label:'Produto'},{key:'categoria_nome',label:'Categoria'},{key:'estoque_atual',label:'Estoque'},
+    {key:'unidade',label:'Unidade'},{key:'preco_custo',label:'Custo Unit.',money:true},
+    {key:'preco_venda',label:'Venda Unit.',money:true},{key:'valor_estoque_custo',label:'Valor Custo',money:true},
+    {key:'valor_estoque_venda',label:'Valor Venda',money:true}
+  ], 'relatorio_estoque');
+}
+function exportarEstoquePDF() {
+  var html = '<table><thead><tr><th>Produto</th><th>Categoria</th><th>Estoque</th><th class="right">Custo</th><th class="right">Vl Custo</th><th class="right">Vl Venda</th></tr></thead><tbody>';
+  window._relEstoqueData.forEach(function(p) { html += '<tr><td>' + p.nome + '</td><td>' + (p.categoria_nome||'-') + '</td><td>' + p.estoque_atual + ' ' + p.unidade + '</td><td class="right">' + formatMoney(p.preco_custo) + '</td><td class="right">' + formatMoney(p.valor_estoque_custo) + '</td><td class="right">' + formatMoney(p.valor_estoque_venda) + '</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Posicao de Estoque', html);
+}
+
+// --- MAIS VENDIDOS ---
 async function relatorioProdutosMaisVendidos() {
   document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><h3>Produtos Mais Vendidos</h3><div class="form-row mt-1"><div class="form-group"><label>Data Inicio</label><input class="form-control" id="relTopDi" type="date"></div><div class="form-group"><label>Data Fim</label><input class="form-control" id="relTopDf" type="date"></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="gerarRelTop()">Gerar</button></div></div><div id="relTopResult"></div></div>';
 }
 async function gerarRelTop() {
   try {
     var data = await api('/api/relatorios/produtos-mais-vendidos?data_inicio=' + document.getElementById('relTopDi').value + '&data_fim=' + document.getElementById('relTopDf').value);
-    document.getElementById('relTopResult').innerHTML = '<table class="mt-2"><thead><tr><th>#</th><th>Produto</th><th>Qtd Vendida</th><th>Total</th></tr></thead><tbody>' + data.map(function(p,i){return '<tr><td><strong>' + (i+1) + '</strong></td><td>' + p.nome_produto + '</td><td>' + p.qtd_vendida + '</td><td><strong>' + formatMoney(p.total_vendido) + '</strong></td></tr>';}).join('') + '</tbody></table>';
+    window._relTopData = data;
+    var html = gerarBarrasHtml(data.slice(0, 15), 'nome_produto', 'total_vendido', 'var(--success)');
+    html += '<table class="mt-2"><thead><tr><th>#</th><th>Produto</th><th>Categoria</th><th>Qtd Vendida</th><th>Total</th></tr></thead><tbody>' + data.map(function(p,i){return '<tr><td><strong>' + (i+1) + '</strong></td><td>' + p.nome_produto + '</td><td>' + (p.categoria||'-') + '</td><td>' + p.qtd_vendida + '</td><td><strong>' + formatMoney(p.total_vendido) + '</strong></td></tr>';}).join('') + '</tbody></table>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarTopCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarTopPDF()">Exportar PDF</button></div>';
+    document.getElementById('relTopResult').innerHTML = html;
   } catch(e) {}
 }
+function exportarTopCSV() {
+  exportarCSV(window._relTopData, [
+    {key:'nome_produto',label:'Produto'},{key:'categoria',label:'Categoria'},{key:'qtd_vendida',label:'Qtd'},
+    {key:'total_vendido',label:'Total',money:true}
+  ], 'mais_vendidos');
+}
+function exportarTopPDF() {
+  var html = '<table><thead><tr><th>#</th><th>Produto</th><th>Qtd</th><th class="right">Total</th></tr></thead><tbody>';
+  window._relTopData.forEach(function(p,i) { html += '<tr><td>' + (i+1) + '</td><td>' + p.nome_produto + '</td><td>' + p.qtd_vendida + '</td><td class="right">' + formatMoney(p.total_vendido) + '</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Produtos Mais Vendidos', html);
+}
+
+// --- PERDAS COMPLETO ---
 async function relatorioPerdas() {
+  document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><h3>Relatorio de Perdas</h3><div class="form-row mt-1"><div class="form-group"><label>Data Inicio</label><input class="form-control" id="relPerdasDi" type="date"></div><div class="form-group"><label>Data Fim</label><input class="form-control" id="relPerdasDf" type="date"></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="gerarRelPerdas()">Gerar</button></div></div><div id="relPerdasResult"></div></div>';
+}
+async function gerarRelPerdas() {
   try {
-    var data = await api('/api/validade/relatorio-perdas');
-    document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><div class="flex-between mb-2"><h3>Relatorio de Perdas</h3><div><strong>Total: <span class="text-danger">' + formatMoney(data.total_perda) + '</span></strong></div></div>' + (data.perdas.length ? '<table><thead><tr><th>Data</th><th>Produto</th><th>Qtd</th><th>Valor</th><th>Motivo</th></tr></thead><tbody>' + data.perdas.map(function(p){return '<tr><td>' + formatDateTime(p.criado_em) + '</td><td>' + p.produto_nome + '</td><td>' + p.quantidade + '</td><td class="text-danger">' + formatMoney(p.valor_perda) + '</td><td>' + p.motivo + '</td></tr>';}).join('') + '</tbody></table>' : '<div class="empty-state"><p>Nenhuma perda registrada</p></div>') + '</div>';
-  } catch(e) {}
+    var di = document.getElementById('relPerdasDi').value;
+    var df = document.getElementById('relPerdasDf').value;
+    var data = await api('/api/relatorios/perdas-completo?data_inicio=' + di + '&data_fim=' + df);
+    window._relPerdasData = data.perdas;
+
+    var html = '<div class="cards-grid mt-2" style="grid-template-columns:repeat(3,1fr)">';
+    html += '<div class="card card-stat danger"><div class="stat-value">' + formatMoney(data.total_custo) + '</div><div class="stat-label">Total Perda (Custo)</div></div>';
+    html += '<div class="card card-stat warning"><div class="stat-value">' + formatMoney(data.total_venda) + '</div><div class="stat-label">Total Perda (Venda)</div></div>';
+    html += '<div class="card card-stat primary"><div class="stat-value">' + data.perdas.length + '</div><div class="stat-label">Ocorrencias</div></div>';
+    html += '</div>';
+
+    // Por tipo
+    var tipos = Object.keys(data.por_tipo);
+    if (tipos.length) {
+      html += '<h4 style="margin:16px 0 8px">Por Tipo de Perda</h4><table><thead><tr><th>Tipo</th><th>Qtd</th><th>Valor Custo</th><th>Valor Venda</th></tr></thead><tbody>';
+      tipos.forEach(function(t) {
+        var d = data.por_tipo[t];
+        html += '<tr><td><strong>' + t + '</strong></td><td>' + d.qtd + '</td><td class="text-danger">' + formatMoney(d.valor_custo) + '</td><td>' + formatMoney(d.valor_venda) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // Por categoria
+    var cats = Object.keys(data.por_categoria);
+    if (cats.length) {
+      html += '<h4 style="margin:16px 0 8px">Por Categoria</h4><table><thead><tr><th>Categoria</th><th>Qtd</th><th>Valor Custo</th></tr></thead><tbody>';
+      cats.forEach(function(c) {
+        var d = data.por_categoria[c];
+        html += '<tr><td><strong>' + c + '</strong></td><td>' + d.qtd + '</td><td class="text-danger">' + formatMoney(d.valor_custo) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // Detalhes
+    html += '<h4 style="margin:16px 0 8px">Detalhamento</h4>';
+    html += data.perdas.length ? '<table><thead><tr><th>Data</th><th>Produto</th><th>Categoria</th><th>Qtd</th><th>Valor Custo</th><th>Motivo</th></tr></thead><tbody>' + data.perdas.map(function(p) { return '<tr><td>' + formatDateTime(p.criado_em) + '</td><td>' + p.produto_nome + '</td><td>' + (p.categoria||'-') + '</td><td>' + p.quantidade + '</td><td class="text-danger">' + formatMoney(p.valor_custo_perda) + '</td><td>' + (p.motivo||'-') + '</td></tr>'; }).join('') + '</tbody></table>' : '<div class="text-muted">Nenhuma perda registrada</div>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarPerdasCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarPerdasPDF()">Exportar PDF</button></div>';
+    document.getElementById('relPerdasResult').innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+function exportarPerdasCSV() {
+  exportarCSV(window._relPerdasData, [
+    {key:'criado_em',label:'Data'},{key:'produto_nome',label:'Produto'},{key:'categoria',label:'Categoria'},
+    {key:'quantidade',label:'Qtd'},{key:'valor_custo_perda',label:'Valor Custo',money:true},
+    {key:'valor_venda_perda',label:'Valor Venda',money:true},{key:'motivo',label:'Motivo'}
+  ], 'relatorio_perdas');
+}
+function exportarPerdasPDF() {
+  var html = '<table><thead><tr><th>Data</th><th>Produto</th><th>Qtd</th><th class="right">Valor</th><th>Motivo</th></tr></thead><tbody>';
+  window._relPerdasData.forEach(function(p) { html += '<tr><td>' + formatDateTime(p.criado_em) + '</td><td>' + p.produto_nome + '</td><td>' + p.quantidade + '</td><td class="right">' + formatMoney(p.valor_custo_perda) + '</td><td>' + (p.motivo||'-') + '</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Relatorio de Perdas', html);
+}
+
+// --- FLUXO DE CAIXA ---
+async function relatorioFluxoCaixa() {
+  document.getElementById('relatorioContent').innerHTML = '<div class="card mt-2"><h3>Fluxo de Caixa</h3><div class="form-row mt-1"><div class="form-group"><label>Data Inicio</label><input class="form-control" id="relFluxoDi" type="date"></div><div class="form-group"><label>Data Fim</label><input class="form-control" id="relFluxoDf" type="date"></div><div class="form-group"><label>Agrupamento</label><select class="form-control" id="relFluxoAgrup"><option value="dia">Por Dia</option><option value="semana">Por Semana</option><option value="mes">Por Mes</option></select></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="gerarRelFluxo()">Gerar</button></div></div><div id="relFluxoResult"></div></div>';
+}
+async function gerarRelFluxo() {
+  try {
+    var di = document.getElementById('relFluxoDi').value;
+    var df = document.getElementById('relFluxoDf').value;
+    var agrup = document.getElementById('relFluxoAgrup').value;
+    var data = await api('/api/relatorios/fluxo-caixa?data_inicio=' + di + '&data_fim=' + df + '&agrupamento=' + agrup);
+    window._relFluxoData = data.fluxo;
+
+    var saldoClass = data.saldo >= 0 ? 'success' : 'danger';
+    var html = '<div class="cards-grid mt-2" style="grid-template-columns:repeat(3,1fr)">';
+    html += '<div class="card card-stat success"><div class="stat-value">' + formatMoney(data.total_entradas) + '</div><div class="stat-label">Total Entradas (Vendas)</div></div>';
+    html += '<div class="card card-stat danger"><div class="stat-value">' + formatMoney(data.total_saidas) + '</div><div class="stat-label">Total Saidas (Compras+Sangrias)</div></div>';
+    html += '<div class="card card-stat ' + saldoClass + '"><div class="stat-value">' + formatMoney(data.saldo) + '</div><div class="stat-label">Saldo</div></div>';
+    html += '</div>';
+
+    // Grafico de barras duplas
+    if (data.fluxo.length) {
+      var maxVal = Math.max.apply(null, data.fluxo.map(function(f) { return Math.max(f.entradas, f.saidas); }));
+      if (maxVal < 1) maxVal = 1;
+      html += '<div class="rel-chart" style="margin:16px 0">';
+      data.fluxo.forEach(function(f) {
+        var pctE = (f.entradas / maxVal) * 100;
+        var pctS = (f.saidas / maxVal) * 100;
+        html += '<div class="rel-chart-item"><div style="display:flex;gap:2px;align-items:flex-end;height:100%"><div style="width:48%;height:' + pctE + '%;background:var(--success);border-radius:2px 2px 0 0;min-height:1px" title="Entradas: ' + formatMoney(f.entradas) + '"></div><div style="width:48%;height:' + pctS + '%;background:var(--danger);border-radius:2px 2px 0 0;min-height:1px" title="Saidas: ' + formatMoney(f.saidas) + '"></div></div><div class="rel-chart-label">' + f.periodo.slice(-5) + '</div></div>';
+      });
+      html += '</div>';
+      html += '<div style="display:flex;gap:16px;margin-bottom:8px;font-size:11px"><span style="color:var(--success)">&#x25CF; Entradas</span><span style="color:var(--danger)">&#x25CF; Saidas</span></div>';
+    }
+
+    html += '<table><thead><tr><th>Periodo</th><th>Entradas</th><th>Compras</th><th>Sangrias</th><th>Total Saidas</th><th>Saldo</th></tr></thead><tbody>';
+    var saldoAcum = 0;
+    data.fluxo.forEach(function(f) {
+      saldoAcum += f.saldo;
+      var sClass = f.saldo >= 0 ? 'text-success' : 'text-danger';
+      html += '<tr><td><strong>' + f.periodo + '</strong></td><td class="text-success">' + formatMoney(f.entradas) + '</td><td class="text-danger">' + formatMoney(f.compras) + '</td><td class="text-danger">' + formatMoney(f.sangrias) + '</td><td class="text-danger">' + formatMoney(f.saidas) + '</td><td class="' + sClass + '"><strong>' + formatMoney(f.saldo) + '</strong></td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-outline" onclick="exportarFluxoCSV()">Exportar CSV</button><button class="btn btn-outline" onclick="exportarFluxoPDF()">Exportar PDF</button></div>';
+    document.getElementById('relFluxoResult').innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+function exportarFluxoCSV() {
+  exportarCSV(window._relFluxoData, [
+    {key:'periodo',label:'Periodo'},{key:'entradas',label:'Entradas',money:true},
+    {key:'compras',label:'Compras',money:true},{key:'sangrias',label:'Sangrias',money:true},
+    {key:'saidas',label:'Total Saidas',money:true},{key:'saldo',label:'Saldo',money:true}
+  ], 'fluxo_caixa');
+}
+function exportarFluxoPDF() {
+  var html = '<table><thead><tr><th>Periodo</th><th class="right">Entradas</th><th class="right">Compras</th><th class="right">Sangrias</th><th class="right">Saidas</th><th class="right">Saldo</th></tr></thead><tbody>';
+  window._relFluxoData.forEach(function(f) { html += '<tr><td>' + f.periodo + '</td><td class="right">' + formatMoney(f.entradas) + '</td><td class="right">' + formatMoney(f.compras) + '</td><td class="right">' + formatMoney(f.sangrias) + '</td><td class="right">' + formatMoney(f.saidas) + '</td><td class="right">' + formatMoney(f.saldo) + '</td></tr>'; });
+  html += '</tbody></table>';
+  exportarPDF('Fluxo de Caixa', html);
+}
+
+// --- VENDAS POR HORA ---
+async function relatorioVendasHora() {
+  try {
+    var data = await api('/api/relatorios/vendas-por-hora');
+    var diasSemana = await api('/api/relatorios/vendas-dia-semana');
+    var nomesDia = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'];
+    diasSemana.forEach(function(d) { d.dia_nome = nomesDia[d.dia_semana]; });
+
+    var html = '<div class="card mt-2"><h3 style="margin-bottom:12px">Vendas por Hora do Dia</h3>';
+    html += '<p class="text-muted mb-2">Identifique os horarios de pico para otimizar equipe e estoque</p>';
+
+    // Gráfico de horas
+    var maxH = Math.max.apply(null, data.map(function(d){return d.total_vendas||0;}));
+    if (maxH < 1) maxH = 1;
+    html += '<div class="rel-chart">';
+    for (var h = 6; h <= 22; h++) {
+      var item = data.find(function(d){return d.hora === h;});
+      var total = item ? item.total_vendas : 0;
+      var qtd = item ? item.qtd_vendas : 0;
+      var pct = (total / maxH) * 100;
+      var cor = pct > 70 ? 'var(--success)' : pct > 40 ? 'var(--primary)' : 'var(--text-muted)';
+      html += '<div class="rel-chart-item"><div class="rel-chart-bar" style="height:' + pct + '%;background:' + cor + '" title="' + h + 'h: ' + qtd + ' vendas - ' + formatMoney(total) + '"></div><div class="rel-chart-label">' + h + 'h</div><div class="rel-chart-value">' + formatMoney(total) + '</div></div>';
+    }
+    html += '</div>';
+
+    // Vendas por dia da semana
+    html += '<h4 style="margin:20px 0 8px">Vendas por Dia da Semana</h4>';
+    html += gerarBarrasHtml(diasSemana, 'dia_nome', 'total_vendas', 'var(--warning)');
+    html += '<table><thead><tr><th>Dia</th><th>Qtd Vendas</th><th>Total</th><th>Ticket Medio</th></tr></thead><tbody>';
+    diasSemana.forEach(function(d) { html += '<tr><td><strong>' + d.dia_nome + '</strong></td><td>' + d.qtd_vendas + '</td><td><strong>' + formatMoney(d.total_vendas) + '</strong></td><td>' + formatMoney(d.ticket_medio) + '</td></tr>'; });
+    html += '</tbody></table></div>';
+
+    document.getElementById('relatorioContent').innerHTML = html;
+  } catch(e) { console.error(e); }
 }
 
 // ============ CONFIGURACOES ============

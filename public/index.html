@@ -379,22 +379,42 @@
 
       <!-- ============ RELATÓRIOS ============ -->
       <div class="page" id="page-relatorios">
-        <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+        <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
           <div class="card" style="cursor:pointer" onclick="relatorioVendas()">
-            <h3>&#x1F4CA; Relatório de Vendas</h3>
-            <p class="text-muted mt-1">Vendas por período com totais e ticket médio</p>
+            <h3>&#x1F4CA; Relatorio de Vendas</h3>
+            <p class="text-muted mt-1">Vendas por periodo com totais e ticket medio</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioComparativoMensal()">
+            <h3>&#x1F4C8; Comparativo Mensal</h3>
+            <p class="text-muted mt-1">Evolucao de vendas mes a mes (12 meses)</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioMargemLucro()">
+            <h3>&#x1F4B0; Margem de Lucro</h3>
+            <p class="text-muted mt-1">Lucro real por produto e por categoria</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioCurvaABC()">
+            <h3>&#x1F3AF; Curva ABC</h3>
+            <p class="text-muted mt-1">Classificacao ABC de produtos por faturamento</p>
           </div>
           <div class="card" style="cursor:pointer" onclick="relatorioEstoque()">
-            <h3>&#x1F4E6; Relatório de Estoque</h3>
-            <p class="text-muted mt-1">Posição atual do estoque com valores</p>
+            <h3>&#x1F4E6; Relatorio de Estoque</h3>
+            <p class="text-muted mt-1">Posicao atual do estoque com valores</p>
           </div>
           <div class="card" style="cursor:pointer" onclick="relatorioProdutosMaisVendidos()">
             <h3>&#x1F3C6; Produtos Mais Vendidos</h3>
             <p class="text-muted mt-1">Ranking de produtos por quantidade vendida</p>
           </div>
           <div class="card" style="cursor:pointer" onclick="relatorioPerdas()">
-            <h3>&#x26A0; Relatório de Perdas</h3>
-            <p class="text-muted mt-1">Perdas por vencimento e avaria</p>
+            <h3>&#x26A0; Relatorio de Perdas</h3>
+            <p class="text-muted mt-1">Perdas por vencimento, avaria e outros</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioFluxoCaixa()">
+            <h3>&#x1F4B8; Fluxo de Caixa</h3>
+            <p class="text-muted mt-1">Entradas e saidas por dia/semana/mes</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioVendasHora()">
+            <h3>&#x23F0; Vendas por Hora</h3>
+            <p class="text-muted mt-1">Horarios de pico e movimento</p>
           </div>
         </div>
         <div id="relatorioContent"></div>

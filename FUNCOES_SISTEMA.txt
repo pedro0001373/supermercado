@@ -1,0 +1,560 @@
+================================================================================
+         SUPERMERCADO PERES - DOCUMENTACAO COMPLETA DE FUNCOES
+                    Sistema de Gestao v2.0
+                    Gerado em: 08/04/2026
+================================================================================
+
+ARQUITETURA:
+  Backend:  Node.js + Express (porta 3000)
+  Banco:    sql.js (SQLite via WebAssembly) - arquivo: data/supermercado.db
+  Frontend: SPA em HTML/CSS/JS puro (sem framework)
+  Tema:     Escuro com CSS custom properties
+  Auth:     bcryptjs + localStorage (peres_user)
+  Email:    nodemailer (alertas)
+  XML:      xml2js + multer (importacao NF-e)
+
+================================================================================
+1. AUTENTICACAO E SEGURANCA (src/routes/auth.js)
+================================================================================
+
+POST /api/auth/login
+  - Login com verificacao bcrypt
+  - Registra log de sucesso/falha
+  - Atualiza ultimo_acesso do usuario
+  - Retorna: { usuario: { id, nome, login, perfil } }
+
+GET /api/auth/usuarios
+  - Lista todos os usuarios (id, nome, login, perfil, ativo, ultimo_acesso)
+  - Nao retorna campo senha
+
+POST /api/auth/usuarios
+  - Cria novo usuario com senha bcrypt (minimo 4 caracteres)
+  - Campos: nome*, login*, senha*, perfil (operador/gerente/admin)
+  - Registra log: criar_usuario
+
+PUT /api/auth/usuarios/:id
+  - Edita usuario (nome, login, perfil, ativo)
+  - Senha opcional (se enviada, cria novo hash bcrypt)
+  - Registra log: editar_usuario
+
+POST /api/auth/usuarios/:id/reset-senha
+  - Reset de senha por admin (nova_senha minimo 4 chars)
+  - Registra log: reset_senha
+
+POST /api/auth/alterar-senha
+  - Alterar propria senha (requer senha_atual correta)
+  - Registra log: alterar_senha ou alterar_senha_falhou
+
+GET /api/auth/logs
+  - Lista logs de auditoria com filtro por modulo/usuario
+  - Params: modulo, usuario_id, limit (default 100)
+
+GET /api/auth/backups
+  - Lista backups do sistema (arquivo, tamanho, data)
+
+POST /api/auth/backups
+  - Executa backup manual do banco de dados
+  - Registra log: backup_manual
+
+PERFIS DE ACESSO:
+  operador: apenas PDV
+  gerente:  dashboard, PDV, produtos, categorias, fornecedores, clientes,
+            estoque, validade, notas-entrada, nfce, vendas, relatorios
+  admin:    tudo (+ configuracoes, usuarios, logs, backups)
+
+================================================================================
+2. PRODUTOS (src/routes/produtos.js)
+================================================================================
+
+GET /api/produtos
+  - Lista produtos com paginacao
+  - Params: busca (nome ou codigo_barras), categoria_id, ativo, page, limit
+  - Retorna: { produtos, total, page, pages }
+
+GET /api/produtos/barcode/:codigo
+  - Busca produto por codigo de barras (para PDV)
+  - Retorna 404 se nao encontrado
+
+GET /api/produtos/:id
+  - Detalhes de um produto com nome da categoria
+
+POST /api/produtos
+  - Cria produto com todos os campos fiscais
+  - Campos obrigatorios: nome, preco_venda
+  - Campos opcionais: codigo_barras, descricao, categoria_id, unidade (UN/KG/LT/CX/PCT),
+    preco_custo, margem_lucro, estoque_atual, estoque_minimo, ncm, cst, cfop,
+    icms_aliquota, pis_aliquota, cofins_aliquota, peso_liquido, usa_balanca
+  - Se estoque_atual > 0, cria movimentacao "Estoque inicial"
+
+PUT /api/produtos/:id
+  - Atualiza todos os campos do produto (exceto estoque_atual)
+
+DELETE /api/produtos/:id
+  - Soft delete (ativo = 0)
+
+================================================================================
+3. CATEGORIAS (src/routes/categorias.js)
+================================================================================
+
+GET /api/categorias       - Lista todas as categorias ativas
+POST /api/categorias      - Cria categoria (nome*, descricao)
+PUT /api/categorias/:id   - Atualiza categoria
+DELETE /api/categorias/:id - Desativa categoria
+
+Categorias padrao: Mercearia, Bebidas, Frios e Laticinios, Carnes, Hortifruti,
+                   Padaria, Limpeza, Higiene Pessoal, Congelados, Pet Shop, Bazar, Outros
+
+================================================================================
+4. FORNECEDORES (src/routes/fornecedores.js)
+================================================================================
+
+GET /api/fornecedores      - Lista fornecedores com busca (razao_social, nome_fantasia, cnpj)
+GET /api/fornecedores/:id  - Detalhes do fornecedor
+POST /api/fornecedores     - Cria fornecedor (razao_social*, cnpj unico)
+PUT /api/fornecedores/:id  - Atualiza fornecedor
+DELETE /api/fornecedores/:id - Soft delete (ativo = 0)
+
+Campos: razao_social, nome_fantasia, cnpj, ie, endereco, cidade, uf, cep,
+        telefone, email, contato
+
+================================================================================
+5. CLIENTES FIDELIDADE (src/routes/clientes.js)
+================================================================================
+
+GET /api/clientes/buscar?termo=
+  - Busca por nome ou CPF (para PDV)
+
+GET /api/clientes
+  - Lista todos os clientes
+
+GET /api/clientes/:id
+  - Detalhes do cliente + historico de compras (ultimas 20 vendas)
+
+POST /api/clientes
+  - Cadastra cliente (nome*, cpf unico, telefone, email)
+
+PUT /api/clientes/:id
+  - Atualiza dados do cliente
+
+Sistema de pontos: 1 ponto por R$1 gasto (atualizado automaticamente na venda)
+Campos: nome, cpf, telefone, email, pontos, total_compras, qtd_compras
+
+================================================================================
+6. CONTROLE DE ESTOQUE (src/routes/estoque.js)
+================================================================================
+
+GET /api/estoque/alertas
+  - Produtos com estoque_atual <= estoque_minimo
+
+GET /api/estoque/movimentacoes
+  - Historico de movimentacoes com filtros
+  - Params: produto_id, tipo, data_inicio, data_fim, page, limit
+  - Tipos: entrada, saida, inventario, perda
+
+POST /api/estoque/entrada
+  - Entrada manual de estoque (produto_id*, quantidade*, motivo, usuario)
+  - Registra movimentacao e log
+
+POST /api/estoque/saida
+  - Saida manual de estoque (mesmo formato da entrada)
+
+POST /api/estoque/inventario
+  - Ajuste de inventario em lote
+  - Body: { itens: [{ produto_id, quantidade_contada }], usuario }
+
+POST /api/estoque/perda
+  - Registra perda de produto (produto_id*, quantidade*, motivo, usuario)
+
+--- PEDIDO DE COMPRA AUTOMATICO ---
+
+GET /api/estoque/sugestao-pedido
+  - Analisa consumo dos ultimos 30 dias
+  - Calcula consumo diario, dias de estoque restantes
+  - Sugere quantidade para 30 dias de estoque
+  - Retorna: lista com consumo_diario, dias_estoque, quantidade_sugerida, custo_estimado
+
+POST /api/estoque/pedido-compra
+  - Cria pedido de compra (fornecedor_id, itens, observacoes, usuario)
+  - Itens: [{ produto_id, quantidade_sugerida, quantidade, custo_estimado }]
+
+GET /api/estoque/pedidos-compra
+  - Lista ultimos 50 pedidos com qtd_itens
+
+GET /api/estoque/pedido-compra/:id
+  - Detalhes do pedido com itens (produto_nome, codigo_barras, unidade)
+
+--- CODIGO DE BARRAS ---
+
+POST /api/estoque/gerar-codigo-barras
+  - Gera EAN-13 interno para 1 produto (produto_id)
+  - Formato: prefixo(3) + sequencial(9) + digito verificador(1)
+  - Prefixo configuravel (padrao: 789)
+
+POST /api/estoque/gerar-codigo-barras-lote
+  - Gera codigos para todos os produtos sem codigo de barras
+
+GET /api/estoque/sem-codigo-barras
+  - Lista produtos ativos sem codigo de barras
+
+GET /api/estoque/etiqueta/:id
+  - Dados do produto para impressao de etiqueta
+
+--- CONTROLE DE LOTES ---
+
+GET /api/estoque/lotes/:produtoId
+  - Lista lotes de um produto com status de validade (ok/proximo/vencido)
+
+POST /api/estoque/lotes
+  - Cadastra lote manual (produto_id*, data_validade*, numero_lote, quantidade, etc)
+
+GET /api/estoque/lote-rastreio/:loteId
+  - Rastreabilidade completa: dados do lote + fornecedor + nota + vendas
+
+POST /api/estoque/enviar-alerta
+  - Dispara alerta manual de estoque baixo (email/WhatsApp)
+
+--- ALERTAS AUTOMATICOS ---
+  - Verificacao automatica a cada 1 hora
+  - Envia email via SMTP (nodemailer) e/ou WhatsApp via webhook
+  - Intervalo configuravel entre alertas (padrao: 24h)
+
+================================================================================
+7. CONTROLE DE VALIDADE (src/routes/validade.js)
+================================================================================
+
+GET /api/validade/alertas
+  - Lotes proximos do vencimento (padrao: 30 dias)
+  - Params: dias
+
+GET /api/validade/vencidos
+  - Lotes ja vencidos com dias_vencido
+
+GET /api/validade/promocoes
+  - Lotes que vencem em ate 7 dias com preco sugerido (30% OFF)
+
+POST /api/validade/lotes
+  - Cadastrar lote de produto
+
+GET /api/validade/lotes/:produto_id
+  - Listar lotes de um produto
+
+GET /api/validade/relatorio-perdas
+  - Perdas por vencimento com valor total
+  - Params: data_inicio, data_fim
+
+================================================================================
+8. NOTAS FISCAIS DE ENTRADA (src/routes/notasEntrada.js)
+================================================================================
+
+GET /api/notas-entrada
+  - Lista notas com filtros (fornecedor_id, status, data_inicio, data_fim)
+
+GET /api/notas-entrada/:id
+  - Detalhes da nota com itens vinculados
+
+POST /api/notas-entrada
+  - Lancamento manual de nota (fornecedor_id, numero_nota, serie, itens)
+
+POST /api/notas-entrada/importar-xml
+  - Importar XML de NF-e (upload multipart)
+  - Cria fornecedor automaticamente se nao existir
+  - Extrai todos os itens e impostos do XML
+
+POST /api/notas-entrada/:id/confirmar
+  - Confirma nota e atualiza estoque de todos os itens vinculados
+  - Cria lotes automaticamente se item tiver dados de lote
+  - Atualiza ultimo_fornecedor_id no produto
+
+PUT /api/notas-entrada/itens/:itemId/vincular
+  - Vincula item da nota a um produto existente
+
+================================================================================
+9. PDV - FRENTE DE CAIXA (src/routes/caixa.js + vendas.js)
+================================================================================
+
+--- CAIXA ---
+
+GET /api/caixa/aberto
+  - Retorna caixa aberto atual com totais calculados
+  - Inclui: total_vendas, total_sangrias, total_suprimentos, pagamentos_por_tipo
+
+POST /api/caixa/abrir
+  - Abre caixa (operador*, numero_caixa, valor_abertura)
+  - Erro se ja houver caixa aberto
+
+POST /api/caixa/fechar
+  - Fecha caixa e calcula resumo completo
+  - Calcula: esperado em caixa, diferenca
+  - Body: valor_fechamento (contado), observacoes
+
+POST /api/caixa/sangria
+  - Registra retirada de dinheiro do caixa (valor*, motivo)
+
+POST /api/caixa/suprimento
+  - Registra entrada de dinheiro no caixa (valor*, motivo)
+
+GET /api/caixa/historico
+  - Ultimos 30 caixas com todos os dados
+
+GET /api/caixa/:id/movimentacoes
+  - Sangrias e suprimentos de um caixa especifico
+
+--- VENDAS ---
+
+GET /api/vendas
+  - Lista vendas com filtros (data_inicio, data_fim, page, limit)
+
+GET /api/vendas/:id
+  - Detalhes da venda com itens e pagamentos
+
+POST /api/vendas
+  - Finaliza venda completa
+  - Body: { itens, pagamentos, cliente_cpf, cliente_id, desconto }
+  - Itens: [{ produto_id, codigo_barras, nome_produto, quantidade, preco_unitario, desconto, subtotal }]
+  - Pagamentos: [{ forma_pagamento, valor, troco }]
+  - Atualiza estoque (desconta quantidade vendida)
+  - Atualiza pontos/total do cliente fidelidade
+
+POST /api/vendas/:id/cancelar
+  - Cancela venda e devolve estoque
+
+--- FUNCIONALIDADES DO PDV (Frontend) ---
+
+  - Busca por codigo de barras com auto-foco
+  - Som de bip ao adicionar produto (Web Audio API 1200Hz)
+  - Animacao flash ao adicionar item
+  - Desconto por item individual (clique no valor)
+  - Desconto global (valor ou porcentagem com preview)
+  - Cliente fidelidade (busca, selecao, barra de info)
+  - Calculo de troco em tempo real (verde = troco, vermelho = falta)
+  - Multiplas formas de pagamento na mesma venda
+  - Impressao de cupom profissional com dados completos
+  - CPF na nota
+  - Atalhos de teclado:
+    F1 = Buscar produto
+    F2 = Pagamento
+    F4 = Cancela ultimo item
+    F6 = Desconto geral
+    F7 = Cliente fidelidade
+    F8 = Abrir/fechar caixa
+    F9 = Sangria
+    ESC = Cancelar venda (ou fechar modal)
+
+================================================================================
+10. NFC-e (src/routes/nfce.js)
+================================================================================
+
+GET /api/nfce
+  - Lista NFC-e com filtro por status
+
+POST /api/nfce/emitir
+  - Emite NFC-e para uma venda (ambiente homologacao)
+  - Gera chave de acesso 44 digitos
+  - Numero sequencial automatico
+
+POST /api/nfce/:id/cancelar
+  - Cancela NFC-e (motivo minimo 15 caracteres)
+
+POST /api/nfce/inutilizar
+  - Inutiliza faixa de numeracao
+
+GET /api/nfce/:id/cupom
+  - Dados completos para impressao do cupom fiscal
+  - Inclui: dados empresa, nfce, itens, pagamentos, venda
+
+================================================================================
+11. RELATORIOS (src/routes/relatorios.js)
+================================================================================
+
+GET /api/relatorios/dashboard
+  - Resumo completo: vendas hoje/mes, estoque baixo, vencendo/vencidos
+  - Vendas por hora (hoje), vendas ultimos 7 dias
+  - Top 10 produtos mais vendidos do mes
+  - Formas de pagamento do mes
+
+GET /api/relatorios/vendas
+  - Vendas por periodo agrupadas (dia/mes/hora)
+  - Params: data_inicio, data_fim, agrupamento
+  - Retorna: periodo, qtd_vendas, total_vendas, total_descontos, ticket_medio
+
+GET /api/relatorios/estoque
+  - Posicao de estoque com valores
+  - Total custo e total venda de todo o estoque
+
+GET /api/relatorios/produtos-mais-vendidos
+  - Ranking de produtos por quantidade vendida
+  - Params: data_inicio, data_fim, limit
+  - Inclui: categoria, preco_medio
+
+================================================================================
+12. CONFIGURACOES (src/routes/configuracoes.js)
+================================================================================
+
+GET /api/configuracoes   - Retorna todas as configuracoes como objeto chave:valor
+PUT /api/configuracoes   - Salva multiplas configuracoes de uma vez
+
+CONFIGURACOES DISPONIVEIS:
+  empresa_razao_social, empresa_nome_fantasia, empresa_cnpj, empresa_ie,
+  empresa_endereco, empresa_cidade, empresa_uf, empresa_cep, empresa_telefone,
+  nfce_serie, nfce_ultimo_numero, nfce_ambiente, nfce_csc_id, nfce_csc_token,
+  estoque_alerta_dias_validade, pix_chave, pix_nome, pix_cidade,
+  alerta_email_ativo, alerta_email_destinatario, alerta_email_smtp_host,
+  alerta_email_smtp_porta, alerta_email_smtp_usuario, alerta_email_smtp_senha,
+  alerta_whatsapp_ativo, alerta_whatsapp_webhook, alerta_whatsapp_numero,
+  alerta_intervalo_horas, codigo_barras_prefixo, codigo_barras_proximo
+
+================================================================================
+13. SISTEMA DE LOG/AUDITORIA (src/middleware/logger.js)
+================================================================================
+
+Funcao: registrarLog(usuario_id, usuario_nome, acao, modulo, detalhes, ip)
+Tabela: logs (id, usuario_id, usuario_nome, acao, modulo, detalhes, ip, criado_em)
+
+Acoes registradas:
+  Auth:     login, login_falhou, login_bloqueado
+  Vendas:   nova_venda, cancelar_venda
+  Caixa:    abrir_caixa, fechar_caixa, sangria, suprimento
+  Estoque:  entrada_estoque, saida_estoque, inventario, perda,
+            pedido_compra, gerar_codigo_barras, gerar_codigo_barras_lote, cadastrar_lote
+  Usuarios: criar_usuario, editar_usuario, reset_senha, alterar_senha
+  Sistema:  backup_manual
+
+================================================================================
+14. BACKUP AUTOMATICO (src/models/database.js)
+================================================================================
+
+  - Backup automatico a cada 6 horas
+  - Backup inicial 5 segundos apos iniciar o sistema
+  - Mantem os ultimos 20 backups
+  - Diretorio: data/backups/
+  - Formato: backup_YYYYMMDD_HHMMSS.db
+  - Backup manual disponivel via POST /api/auth/backups
+
+================================================================================
+15. BANCO DE DADOS - TABELAS (src/models/database.js)
+================================================================================
+
+  fornecedores          - Cadastro de fornecedores
+  categorias            - Categorias de produtos
+  produtos              - Catalogo completo com dados fiscais
+  lotes                 - Controle de lotes com validade
+  movimentacoes_estoque - Historico de todas as movimentacoes
+  notas_entrada         - Notas fiscais de entrada
+  itens_nota_entrada    - Itens das notas de entrada
+  caixas                - Controle de abertura/fechamento de caixa
+  movimentacoes_caixa   - Sangrias e suprimentos
+  vendas                - Registro de vendas
+  itens_venda           - Itens de cada venda
+  pagamentos            - Pagamentos de cada venda
+  nfce                  - Notas fiscais de consumidor
+  configuracoes         - Parametros do sistema
+  usuarios              - Cadastro de usuarios com perfil
+  clientes              - Clientes fidelidade com pontos
+  logs                  - Auditoria completa do sistema
+  backups               - Registro de backups realizados
+  pedidos_compra        - Pedidos de compra gerados
+  itens_pedido_compra   - Itens dos pedidos de compra
+  alertas_enviados      - Controle de alertas enviados
+
+TOTAL: 21 tabelas + 14 indices
+
+================================================================================
+16. FRONTEND - PAGINAS E FUNCOES (public/js/app.js)
+================================================================================
+
+PAGINAS:
+  Dashboard         - Cards resumo, graficos vendas 7 dias, top produtos, pagamentos, alertas
+  PDV               - Frente de caixa completa com atalhos
+  Produtos          - CRUD com busca e paginacao
+  Categorias        - CRUD simples
+  Fornecedores      - CRUD com busca
+  Clientes          - CRUD fidelidade com historico de compras
+  Estoque           - 6 abas: Alertas, Movimentacoes, Inventario, Pedido Compra, Cod Barras, Lotes
+  Validade          - 3 abas: Proximos, Vencidos, Promocoes
+  Notas de Entrada  - Lista, importacao XML, confirmacao
+  NFC-e             - Lista com filtros, cancelamento, impressao cupom
+  Vendas            - Historico com filtros de data, detalhes, cancelamento
+  Relatorios        - Vendas por periodo, posicao estoque, mais vendidos, perdas
+  Configuracoes     - Todos os parametros do sistema
+  Usuarios          - Gestao de usuarios com reset de senha
+  Logs              - Auditoria com filtro por modulo
+  Backups           - Lista de backups + backup manual
+
+TOTAL: 16 paginas
+
+FUNCOES JAVASCRIPT FRONTEND (principais):
+  Utilitarios:      formatMoney, formatDate, formatDateTime, toast, api
+  Login:            checkLogin, fazerLogin, fazerLogout, temPermissao, aplicarPermissoes
+  Navegacao:        navigateTo, toggleSidebar, showApp
+  Modal:            abrirModal, fecharModal
+  Dashboard:        carregarDashboard (cards, graficos, alertas, badges)
+  Produtos:         carregarProdutos, modalProduto, salvarProduto, excluirProduto, irParaProduto
+  Categorias:       carregarCategorias, modalCategoria, salvarCategoria
+  Fornecedores:     carregarFornecedores, modalFornecedor, salvarFornecedor
+  Clientes:         carregarClientes, modalCliente, salvarCliente, verCliente
+  Estoque:          estoqueTab, calcDifInv, salvarInventario, modalEntradaEstoque, salvarEntradaEstoque
+  Pedido Compra:    carregarPedidoCompra, gerarPedidoCompra, verPedidoCompra, imprimirPedidoCompra
+  Codigo Barras:    carregarCodigoBarras, gerarCodigoBarrasUnico, gerarCodigoBarrasLote, imprimirEtiquetas
+  Lotes:            carregarLotes, carregarLotesProduto, modalNovoLote, salvarLote, rastreioLote
+  Validade:         validadeTab, registrarPerda
+  Notas Entrada:    carregarNotasEntrada, importarXml, processarXml, confirmarNotaEntrada, detalheNotaEntrada
+  NFC-e:            carregarNfce, cancelarNfce, modalInutilizar, imprimirCupom
+  Vendas:           carregarVendas, detalheVenda, cancelarVenda
+  PDV:              verificarCaixa, abrirCaixa, fecharCaixa, pdvBuscarProduto, pdvAddItem, pdvBeep,
+                    pdvAlterarQtd, pdvRemoverItem, pdvDescontoItem, atualizarPdv, pdvDesconto,
+                    pdvPagamento, addFormaPagamento, calcTroco, finalizarVenda,
+                    pdvSangria, pdvSuprimento, pdvCancelarVenda,
+                    pdvCliente, buscarClientePdv, selecionarClientePdv, pdvRemoverCliente
+  Relatorios:       relatorioVendas, gerarRelVendas, relatorioEstoque, relatorioProdutosMaisVendidos,
+                    gerarRelTop, relatorioPerdas
+  Configuracoes:    carregarConfiguracoes, salvarConfiguracoes
+  Usuarios:         carregarUsuarios, modalUsuario, salvarUsuario, modalResetSenha, resetarSenha,
+                    modalAlterarSenha, alterarSenha
+  Logs:             carregarLogs
+  Backups:          carregarBackups, fazerBackup
+
+================================================================================
+17. ARQUIVOS DO PROJETO
+================================================================================
+
+  package.json                  - Dependencias e scripts
+  src/server.js                 - Servidor Express principal
+  src/desktop.js                - Launcher desktop (abre no browser)
+  src/models/database.js        - Banco de dados SQLite (sql.js) + backup + alertas
+  src/models/db.js              - Exporta instancia do banco
+  src/middleware/logger.js      - Funcao de log centralizada
+  src/routes/auth.js            - Autenticacao e usuarios
+  src/routes/produtos.js        - CRUD de produtos
+  src/routes/categorias.js      - CRUD de categorias
+  src/routes/fornecedores.js    - CRUD de fornecedores
+  src/routes/clientes.js        - CRUD de clientes fidelidade
+  src/routes/estoque.js         - Controle de estoque + pedido + cod barras + lotes
+  src/routes/validade.js        - Controle de validade
+  src/routes/notasEntrada.js    - Notas de entrada + XML
+  src/routes/caixa.js           - Abertura/fechamento de caixa
+  src/routes/vendas.js          - Vendas + fidelidade
+  src/routes/nfce.js            - NFC-e
+  src/routes/relatorios.js      - Relatorios e dashboard
+  src/routes/configuracoes.js   - Configuracoes do sistema
+  public/index.html             - Frontend SPA
+  public/js/app.js              - JavaScript principal
+  public/css/style.css          - Estilos (tema escuro)
+  scripts/empacotar.js          - Script de empacotamento
+  render.yaml                   - Config Render.com
+  Iniciar Supermercado Peres.bat - Launcher Windows
+
+================================================================================
+18. COMO INICIAR
+================================================================================
+
+  Desenvolvimento:  npm run dev     (com nodemon)
+  Producao:         npm start       (node src/server.js)
+  Desktop:          npm run desktop (abre no browser automatico)
+  Windows:          Duplo-clique em "Iniciar Supermercado Peres.bat"
+  Empacotar:        npm run empacotar (gera dist/SupermercadoPeres.zip)
+
+  Login padrao:     admin / admin123
+  URL:              http://localhost:3000
+  Rede local:       http://[IP_DA_MAQUINA]:3000
+
+================================================================================
