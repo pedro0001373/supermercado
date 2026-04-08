@@ -441,8 +441,9 @@ async function salvarFornecedor(id) {
 
 // ============ ESTOQUE ============
 async function estoqueTab(tab) {
+  var tabNames = ['alertas','movimentacoes','inventario','pedido-compra','codigo-barras','lotes'];
   document.querySelectorAll('#page-estoque .tab').forEach(function(t, i) {
-    t.classList.toggle('active', ['alertas','movimentacoes','inventario'][i] === tab);
+    t.classList.toggle('active', tabNames[i] === tab);
   });
   var el = document.getElementById('estoqueContent');
   try {
@@ -458,6 +459,15 @@ async function estoqueTab(tab) {
     if (tab === 'inventario') {
       var prods = await api('/api/produtos?limit=200');
       el.innerHTML = '<div class="card"><h3 style="margin-bottom:16px">Contagem de Inventario</h3><p class="text-muted mb-2">Digite a quantidade contada e clique em Salvar</p><table><thead><tr><th>Codigo</th><th>Produto</th><th>Estoque Sistema</th><th>Contado</th><th>Diferenca</th></tr></thead><tbody>' + prods.produtos.map(function(p) { return '<tr><td class="font-mono">' + (p.codigo_barras||'-') + '</td><td>' + p.nome + '</td><td>' + p.estoque_atual + '</td><td><input class="form-control" type="number" step="0.001" data-pid="' + p.id + '" data-atual="' + p.estoque_atual + '" style="width:120px" oninput="calcDifInv(this)"></td><td class="inv-dif">-</td></tr>'; }).join('') + '</tbody></table><button class="btn btn-primary btn-lg mt-2" onclick="salvarInventario()">Salvar Inventario</button></div>';
+    }
+    if (tab === 'pedido-compra') {
+      carregarPedidoCompra();
+    }
+    if (tab === 'codigo-barras') {
+      carregarCodigoBarras();
+    }
+    if (tab === 'lotes') {
+      carregarLotes();
     }
   } catch(e) { console.error(e); }
 }
@@ -490,6 +500,312 @@ async function salvarEntradaEstoque(produtoId) {
   var qtd = Number(document.getElementById('entradaQtd').value);
   if (!qtd || qtd <= 0) return toast('Quantidade invalida', 'error');
   try { await api('/api/estoque/entrada', { method: 'POST', body: { produto_id: produtoId, quantidade: qtd, motivo: document.getElementById('entradaMotivo').value } }); toast('Entrada registrada!'); fecharModal(); estoqueTab('alertas'); } catch(e) {}
+}
+
+// ============ PEDIDO DE COMPRA AUTOMATICO ============
+async function carregarPedidoCompra() {
+  var el = document.getElementById('estoqueContent');
+  try {
+    var sugestoes = await api('/api/estoque/sugestao-pedido');
+    var pedidos = await api('/api/estoque/pedidos-compra');
+    var totalEstimado = sugestoes.reduce(function(a, s) { return a + s.custo_estimado; }, 0);
+
+    var html = '<div class="card" style="margin-bottom:16px"><h3 style="margin-bottom:12px">Sugestao de Pedido de Compra</h3>';
+    html += '<p class="text-muted mb-2">Baseado no consumo dos ultimos 30 dias e estoque minimo configurado</p>';
+
+    if (sugestoes.length) {
+      html += '<div class="alert alert-warning">' + sugestoes.length + ' produto(s) precisam de reposicao | Custo estimado: <strong>' + formatMoney(totalEstimado) + '</strong></div>';
+      html += '<table><thead><tr><th>Produto</th><th>Estoque</th><th>Minimo</th><th>Consumo/dia</th><th>Dias Estoque</th><th>Qtd Sugerida</th><th>Custo Est.</th><th>Fornecedor</th></tr></thead><tbody>';
+      html += sugestoes.map(function(s) {
+        var diasClass = s.dias_estoque <= 3 ? 'text-danger' : s.dias_estoque <= 7 ? 'text-warning' : '';
+        return '<tr><td><strong>' + s.nome + '</strong></td><td class="text-danger">' + s.estoque_atual + '</td><td>' + s.estoque_minimo + '</td><td>' + s.consumo_diario + '</td><td class="' + diasClass + '"><strong>' + (s.dias_estoque >= 999 ? '-' : s.dias_estoque + 'd') + '</strong></td><td><strong>' + s.quantidade_sugerida + '</strong></td><td>' + formatMoney(s.custo_estimado) + '</td><td>' + (s.fornecedor_nome || '-') + '</td></tr>';
+      }).join('');
+      html += '</tbody></table>';
+      html += '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-primary" onclick="gerarPedidoCompra()">Gerar Pedido de Compra</button><button class="btn btn-outline" onclick="enviarAlertaManual()">Enviar Alerta Agora</button></div>';
+    } else {
+      html += '<div class="alert alert-success">Todos os produtos estao com estoque adequado!</div>';
+    }
+    html += '</div>';
+
+    // Historico de pedidos
+    html += '<div class="card"><h3 style="margin-bottom:12px">Pedidos de Compra Anteriores</h3>';
+    if (pedidos.length) {
+      html += '<table><thead><tr><th>#</th><th>Data</th><th>Fornecedor</th><th>Itens</th><th>Total</th><th>Status</th><th>Acoes</th></tr></thead><tbody>';
+      html += pedidos.map(function(p) {
+        return '<tr><td><strong>#' + p.id + '</strong></td><td>' + formatDateTime(p.criado_em) + '</td><td>' + (p.fornecedor_nome || 'Varios') + '</td><td>' + p.qtd_itens + '</td><td><strong>' + formatMoney(p.total) + '</strong></td><td><span class="status ' + (p.status==='enviado'?'status-success':p.status==='cancelado'?'status-danger':'status-warning') + '">' + p.status + '</span></td><td><button class="btn btn-sm btn-outline" onclick="verPedidoCompra(' + p.id + ')">Ver</button> <button class="btn btn-sm btn-primary" onclick="imprimirPedidoCompra(' + p.id + ')">Imprimir</button></td></tr>';
+      }).join('');
+      html += '</tbody></table>';
+    } else {
+      html += '<div class="text-muted" style="padding:20px;text-align:center">Nenhum pedido gerado ainda</div>';
+    }
+    html += '</div>';
+
+    el.innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+
+async function gerarPedidoCompra() {
+  try {
+    var sugestoes = await api('/api/estoque/sugestao-pedido');
+    if (!sugestoes.length) return toast('Nenhum produto precisa de reposicao', 'warning');
+    var itens = sugestoes.map(function(s) {
+      return { produto_id: s.id, quantidade_sugerida: s.quantidade_sugerida, quantidade: s.quantidade_sugerida, custo_estimado: s.preco_custo || 0 };
+    });
+    var result = await api('/api/estoque/pedido-compra', { method: 'POST', body: { itens: itens, observacoes: 'Gerado automaticamente em ' + new Date().toLocaleDateString('pt-BR'), usuario: currentUser ? currentUser.nome : 'sistema' } });
+    toast('Pedido #' + result.id + ' criado!');
+    carregarPedidoCompra();
+  } catch(e) {}
+}
+
+async function verPedidoCompra(id) {
+  try {
+    var pedido = await api('/api/estoque/pedido-compra/' + id);
+    var html = '<div class="flex-between mb-2"><div><strong>Data:</strong> ' + formatDateTime(pedido.criado_em) + '</div><div><strong>Status:</strong> ' + pedido.status + '</div><div><strong>Total:</strong> ' + formatMoney(pedido.total) + '</div></div>';
+    html += '<table><thead><tr><th>Produto</th><th>Cod. Barras</th><th>Qtd Sugerida</th><th>Qtd Pedido</th><th>Custo Unit.</th></tr></thead><tbody>';
+    html += pedido.itens.map(function(i) {
+      return '<tr><td>' + i.produto_nome + '</td><td class="font-mono">' + (i.codigo_barras||'-') + '</td><td>' + i.quantidade_sugerida + '</td><td><strong>' + i.quantidade + '</strong></td><td>' + formatMoney(i.custo_estimado) + '</td></tr>';
+    }).join('');
+    html += '</tbody></table>';
+    if (pedido.observacoes) html += '<div class="text-muted mt-1">' + pedido.observacoes + '</div>';
+    abrirModal('Pedido de Compra #' + id, html, '<button class="btn btn-outline" onclick="fecharModal()">Fechar</button> <button class="btn btn-primary" onclick="imprimirPedidoCompra(' + id + ')">Imprimir</button>');
+  } catch(e) {}
+}
+
+async function imprimirPedidoCompra(id) {
+  try {
+    var pedido = await api('/api/estoque/pedido-compra/' + id);
+    var w = window.open('', '_blank', 'width=700,height=500');
+    w.document.write('<html><head><style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px;color:#000;background:#fff}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ccc;padding:6px;text-align:left}th{background:#f0f0f0}.right{text-align:right}</style></head><body>');
+    w.document.write('<h1>PEDIDO DE COMPRA #' + id + '</h1>');
+    w.document.write('<p><strong>Data:</strong> ' + formatDateTime(pedido.criado_em) + '</p>');
+    if (pedido.fornecedor_nome) w.document.write('<p><strong>Fornecedor:</strong> ' + pedido.fornecedor_nome + '</p>');
+    w.document.write('<table><thead><tr><th>Produto</th><th>Cod. Barras</th><th>Unidade</th><th>Qtd</th><th class="right">Custo Est.</th></tr></thead><tbody>');
+    pedido.itens.forEach(function(i) {
+      w.document.write('<tr><td>' + i.produto_nome + '</td><td>' + (i.codigo_barras||'-') + '</td><td>' + (i.unidade||'UN') + '</td><td>' + i.quantidade + '</td><td class="right">' + formatMoney(i.custo_estimado) + '</td></tr>');
+    });
+    w.document.write('</tbody></table>');
+    w.document.write('<p style="text-align:right;font-size:14px"><strong>TOTAL ESTIMADO: ' + formatMoney(pedido.total) + '</strong></p>');
+    if (pedido.observacoes) w.document.write('<p><strong>Obs:</strong> ' + pedido.observacoes + '</p>');
+    w.document.write('<script>setTimeout(function(){window.print();},300);<\/script></body></html>');
+  } catch(e) {}
+}
+
+async function enviarAlertaManual() {
+  try {
+    await api('/api/estoque/enviar-alerta', { method: 'POST' });
+    toast('Alerta enviado (verifique email/WhatsApp configurado)');
+  } catch(e) {}
+}
+
+// ============ CODIGO DE BARRAS ============
+async function carregarCodigoBarras() {
+  var el = document.getElementById('estoqueContent');
+  try {
+    var semCodigo = await api('/api/estoque/sem-codigo-barras');
+    var html = '<div class="card" style="margin-bottom:16px"><h3 style="margin-bottom:12px">Gerar Codigo de Barras</h3>';
+    html += '<p class="text-muted mb-2">Gere codigos de barras EAN-13 internos para produtos que nao possuem</p>';
+
+    if (semCodigo.length) {
+      html += '<div class="alert alert-warning">' + semCodigo.length + ' produto(s) sem codigo de barras</div>';
+      html += '<div style="margin-bottom:12px"><button class="btn btn-primary" onclick="gerarCodigoBarrasLote()">Gerar Para Todos (' + semCodigo.length + ' produtos)</button></div>';
+      html += '<table><thead><tr><th>Produto</th><th>Preco</th><th>Estoque</th><th>Acoes</th></tr></thead><tbody>';
+      html += semCodigo.map(function(p) {
+        return '<tr><td><strong>' + p.nome + '</strong></td><td>' + formatMoney(p.preco_venda) + '</td><td>' + p.estoque_atual + ' ' + p.unidade + '</td><td><button class="btn btn-sm btn-primary" onclick="gerarCodigoBarrasUnico(' + p.id + ')">Gerar Codigo</button></td></tr>';
+      }).join('');
+      html += '</tbody></table>';
+    } else {
+      html += '<div class="alert alert-success">Todos os produtos ja possuem codigo de barras!</div>';
+    }
+    html += '</div>';
+
+    // Sessão de impressão de etiquetas
+    html += '<div class="card"><h3 style="margin-bottom:12px">Imprimir Etiquetas</h3>';
+    html += '<p class="text-muted mb-2">Selecione produtos para imprimir etiquetas com codigo de barras</p>';
+    html += '<div class="form-row"><div class="form-group"><label>Buscar produto</label><input class="form-control" id="etiquetaBusca" placeholder="Digite o nome do produto..." oninput="buscarProdutoEtiqueta()"></div><div class="form-group"><label>Qtd por etiqueta</label><input class="form-control" id="etiquetaQtd" type="number" value="1" min="1" style="max-width:100px"></div></div>';
+    html += '<div id="etiquetaResultados"></div>';
+    html += '<div id="etiquetasLista" style="margin-top:12px"></div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+
+async function gerarCodigoBarrasUnico(produtoId) {
+  try {
+    var result = await api('/api/estoque/gerar-codigo-barras', { method: 'POST', body: { produto_id: produtoId } });
+    toast('Codigo gerado: ' + result.codigo_barras);
+    carregarCodigoBarras();
+  } catch(e) {}
+}
+
+async function gerarCodigoBarrasLote() {
+  if (!confirm('Gerar codigos de barras para todos os produtos sem codigo?')) return;
+  try {
+    var result = await api('/api/estoque/gerar-codigo-barras-lote', { method: 'POST' });
+    toast(result.message);
+    carregarCodigoBarras();
+  } catch(e) {}
+}
+
+var _etiquetasProdutos = [];
+
+async function buscarProdutoEtiqueta() {
+  var termo = document.getElementById('etiquetaBusca').value.trim();
+  if (termo.length < 2) { document.getElementById('etiquetaResultados').innerHTML = ''; return; }
+  try {
+    var data = await api('/api/produtos?busca=' + encodeURIComponent(termo) + '&limit=5');
+    document.getElementById('etiquetaResultados').innerHTML = data.produtos.filter(function(p) { return p.codigo_barras; }).map(function(p) {
+      return '<div style="display:flex;align-items:center;padding:8px;border-bottom:1px solid var(--border);cursor:pointer" onclick="addProdutoEtiqueta(' + p.id + ',\'' + p.nome.replace(/'/g,"\\'") + '\',\'' + (p.codigo_barras||'') + '\',' + p.preco_venda + ')"><div style="flex:1"><strong>' + p.nome + '</strong> <span class="font-mono text-muted">' + (p.codigo_barras||'Sem codigo') + '</span></div><div>' + formatMoney(p.preco_venda) + '</div></div>';
+    }).join('') || '<div class="text-muted" style="padding:8px">Nenhum produto com codigo de barras encontrado</div>';
+  } catch(e) {}
+}
+
+function addProdutoEtiqueta(id, nome, codigo, preco) {
+  var qtd = Number(document.getElementById('etiquetaQtd').value) || 1;
+  _etiquetasProdutos.push({ id: id, nome: nome, codigo: codigo, preco: preco, qtd: qtd });
+  document.getElementById('etiquetaBusca').value = '';
+  document.getElementById('etiquetaResultados').innerHTML = '';
+  renderEtiquetasLista();
+}
+
+function removerEtiqueta(index) {
+  _etiquetasProdutos.splice(index, 1);
+  renderEtiquetasLista();
+}
+
+function renderEtiquetasLista() {
+  var el = document.getElementById('etiquetasLista');
+  if (!_etiquetasProdutos.length) { el.innerHTML = ''; return; }
+  var html = '<table><thead><tr><th>Produto</th><th>Codigo</th><th>Preco</th><th>Qtd</th><th></th></tr></thead><tbody>';
+  _etiquetasProdutos.forEach(function(p, i) {
+    html += '<tr><td>' + p.nome + '</td><td class="font-mono">' + p.codigo + '</td><td>' + formatMoney(p.preco) + '</td><td>' + p.qtd + '</td><td><button class="btn btn-sm btn-danger" onclick="removerEtiqueta(' + i + ')">X</button></td></tr>';
+  });
+  html += '</tbody></table>';
+  html += '<button class="btn btn-primary mt-1" onclick="imprimirEtiquetas()">Imprimir Etiquetas (' + _etiquetasProdutos.reduce(function(a,p){return a+p.qtd;},0) + ')</button>';
+  el.innerHTML = html;
+}
+
+function imprimirEtiquetas() {
+  if (!_etiquetasProdutos.length) return toast('Adicione produtos', 'warning');
+  var w = window.open('', '_blank', 'width=600,height=800');
+  var etiquetas = '';
+  _etiquetasProdutos.forEach(function(p) {
+    for (var i = 0; i < p.qtd; i++) {
+      etiquetas += '<div class="etiqueta">';
+      etiquetas += '<div class="et-nome">' + p.nome + '</div>';
+      etiquetas += '<div class="et-codigo">';
+      // Renderizar barras simples via CSS
+      for (var c = 0; c < p.codigo.length; c++) {
+        var digit = parseInt(p.codigo[c]);
+        var w1 = (digit % 2 === 0 ? 2 : 1);
+        var w2 = (digit % 3 === 0 ? 2 : 1);
+        etiquetas += '<span class="bar b" style="width:' + w1 + 'px"></span>';
+        etiquetas += '<span class="bar s" style="width:' + w2 + 'px"></span>';
+      }
+      etiquetas += '</div>';
+      etiquetas += '<div class="et-num">' + p.codigo + '</div>';
+      etiquetas += '<div class="et-preco">' + formatMoney(p.preco) + '</div>';
+      etiquetas += '</div>';
+    }
+  });
+  w.document.write('<html><head><style>' +
+    'body{margin:0;padding:10px;font-family:Arial,sans-serif;color:#000;background:#fff}' +
+    '.etiqueta{display:inline-block;width:180px;border:1px dashed #999;padding:8px;margin:4px;text-align:center;page-break-inside:avoid}' +
+    '.et-nome{font-size:10px;font-weight:bold;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '.et-codigo{height:40px;display:flex;align-items:stretch;justify-content:center;gap:0}' +
+    '.bar{display:inline-block;height:100%}.bar.b{background:#000}.bar.s{background:transparent}' +
+    '.et-num{font-family:monospace;font-size:11px;margin:2px 0;letter-spacing:2px}' +
+    '.et-preco{font-size:16px;font-weight:bold}' +
+    '@media print{.etiqueta{border:1px dashed #ccc}}' +
+    '</style></head><body>' + etiquetas + '<script>setTimeout(function(){window.print();},300);<\/script></body></html>');
+}
+
+// ============ CONTROLE DE LOTES ============
+async function carregarLotes() {
+  var el = document.getElementById('estoqueContent');
+  try {
+    var prods = await api('/api/produtos?limit=200');
+    var html = '<div class="card" style="margin-bottom:16px"><h3 style="margin-bottom:12px">Controle de Lotes</h3>';
+    html += '<p class="text-muted mb-2">Rastreabilidade completa de lotes por produto</p>';
+    html += '<div class="form-row"><div class="form-group"><label>Selecione um produto</label><select class="form-control" id="loteProdutoSelect" onchange="carregarLotesProduto()"><option value="">-- Selecione --</option>';
+    html += prods.produtos.map(function(p) { return '<option value="' + p.id + '">' + p.nome + ' (' + (p.codigo_barras||'sem cod') + ')</option>'; }).join('');
+    html += '</select></div><div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="modalNovoLote()">+ Novo Lote</button></div></div></div>';
+    html += '<div id="lotesConteudo"></div>';
+    el.innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+
+async function carregarLotesProduto() {
+  var produtoId = document.getElementById('loteProdutoSelect').value;
+  var el = document.getElementById('lotesConteudo');
+  if (!produtoId) { el.innerHTML = ''; return; }
+  try {
+    var lotes = await api('/api/estoque/lotes/' + produtoId);
+    if (!lotes.length) { el.innerHTML = '<div class="alert alert-info">Nenhum lote cadastrado para este produto</div>'; return; }
+    var html = '<div class="table-container"><table><thead><tr><th>Lote</th><th>Fabricacao</th><th>Validade</th><th>Status</th><th>Dias</th><th>Quantidade</th><th>Custo Unit.</th><th>Fornecedor</th><th>Acoes</th></tr></thead><tbody>';
+    html += lotes.map(function(l) {
+      var statusClass = l.status_validade === 'vencido' ? 'status-danger' : l.status_validade === 'proximo' ? 'status-warning' : 'status-success';
+      var statusText = l.status_validade === 'vencido' ? 'Vencido' : l.status_validade === 'proximo' ? 'Proximo' : 'OK';
+      return '<tr><td><strong>' + (l.numero_lote || '#' + l.id) + '</strong></td><td>' + formatDate(l.data_fabricacao) + '</td><td>' + formatDate(l.data_validade) + '</td><td><span class="status ' + statusClass + '">' + statusText + '</span></td><td class="' + (l.dias_restantes <= 7 ? 'text-danger' : l.dias_restantes <= 30 ? 'text-warning' : '') + '">' + l.dias_restantes + '</td><td>' + l.quantidade + '</td><td>' + formatMoney(l.custo_unitario) + '</td><td>' + (l.fornecedor_nome||'-') + '</td><td><button class="btn btn-sm btn-outline" onclick="rastreioLote(' + l.id + ')">Rastrear</button></td></tr>';
+    }).join('');
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+
+function modalNovoLote() {
+  var produtoId = document.getElementById('loteProdutoSelect') ? document.getElementById('loteProdutoSelect').value : '';
+  abrirModal('Cadastrar Lote',
+    '<form id="formLote">' +
+    '<div class="form-group"><label>Produto ID *</label><input class="form-control" name="produto_id" value="' + produtoId + '" type="number" required></div>' +
+    '<div class="form-row"><div class="form-group"><label>Numero do Lote</label><input class="form-control" name="numero_lote" placeholder="Ex: LOT-2026-001"></div><div class="form-group"><label>Quantidade</label><input class="form-control" name="quantidade" type="number" step="0.001"></div></div>' +
+    '<div class="form-row"><div class="form-group"><label>Data Fabricacao</label><input class="form-control" name="data_fabricacao" type="date"></div><div class="form-group"><label>Data Validade *</label><input class="form-control" name="data_validade" type="date" required></div></div>' +
+    '<div class="form-row"><div class="form-group"><label>Custo Unitario</label><input class="form-control" name="custo_unitario" type="number" step="0.01"></div><div class="form-group"><label>Fornecedor ID</label><input class="form-control" name="fornecedor_id" type="number"></div></div>' +
+    '</form>',
+    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="salvarLote()">Salvar</button>');
+}
+
+async function salvarLote() {
+  try {
+    var d = Object.fromEntries(new FormData(document.getElementById('formLote')));
+    d.produto_id = Number(d.produto_id);
+    d.quantidade = Number(d.quantidade) || 0;
+    d.custo_unitario = Number(d.custo_unitario) || 0;
+    d.fornecedor_id = d.fornecedor_id ? Number(d.fornecedor_id) : null;
+    d.usuario = currentUser ? currentUser.nome : 'sistema';
+    await api('/api/estoque/lotes', { method: 'POST', body: d });
+    toast('Lote cadastrado!');
+    fecharModal();
+    carregarLotesProduto();
+  } catch(e) {}
+}
+
+async function rastreioLote(loteId) {
+  try {
+    var data = await api('/api/estoque/lote-rastreio/' + loteId);
+    var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
+    html += '<div><strong>Produto:</strong> ' + data.produto_nome + '</div>';
+    html += '<div><strong>Cod. Barras:</strong> ' + (data.codigo_barras || '-') + '</div>';
+    html += '<div><strong>Lote:</strong> ' + (data.numero_lote || '#' + data.id) + '</div>';
+    html += '<div><strong>Fornecedor:</strong> ' + (data.fornecedor_nome || '-') + '</div>';
+    html += '<div><strong>Fabricacao:</strong> ' + formatDate(data.data_fabricacao) + '</div>';
+    html += '<div><strong>Validade:</strong> ' + formatDate(data.data_validade) + '</div>';
+    html += '<div><strong>Quantidade:</strong> ' + data.quantidade + '</div>';
+    html += '<div><strong>Nota Entrada:</strong> ' + (data.numero_nota || '-') + '</div>';
+    html += '</div>';
+
+    if (data.vendas && data.vendas.length) {
+      html += '<h4 style="margin:12px 0 8px">Vendas com este lote</h4>';
+      html += '<table><thead><tr><th>#Venda</th><th>Data</th><th>Qtd</th></tr></thead><tbody>';
+      html += data.vendas.map(function(v) {
+        return '<tr><td>#' + v.numero_venda + '</td><td>' + formatDateTime(v.data_venda) + '</td><td>' + v.quantidade + '</td></tr>';
+      }).join('');
+      html += '</tbody></table>';
+    } else {
+      html += '<div class="text-muted" style="margin-top:12px">Nenhuma venda rastreada para este lote</div>';
+    }
+    abrirModal('Rastreio do Lote ' + (data.numero_lote || '#' + data.id), html, '<button class="btn btn-outline" onclick="fecharModal()">Fechar</button>');
+  } catch(e) {}
 }
 
 // ============ VALIDADE ============
@@ -1163,7 +1479,9 @@ async function carregarLogs() {
       entrada_estoque: 'Entrada', saida_estoque: 'Saida', inventario: 'Inventario', perda: 'Perda',
       criar_usuario: 'Criar Usuario', editar_usuario: 'Editar Usuario', reset_senha: 'Reset Senha',
       alterar_senha: 'Alterar Senha', alterar_senha_falhou: 'Alterar Senha Falhou',
-      backup_manual: 'Backup Manual'
+      backup_manual: 'Backup Manual',
+      pedido_compra: 'Pedido Compra', gerar_codigo_barras: 'Gerar Cod. Barras',
+      gerar_codigo_barras_lote: 'Gerar Cod. Barras Lote', cadastrar_lote: 'Cadastrar Lote'
     };
     var moduloLabels = { auth: 'Login', vendas: 'Vendas', caixa: 'Caixa', estoque: 'Estoque', usuarios: 'Usuarios', sistema: 'Sistema' };
     document.getElementById('logsBody').innerHTML = data.logs.length

@@ -294,8 +294,11 @@
       <div class="page" id="page-estoque">
         <div class="tabs">
           <div class="tab active" onclick="estoqueTab('alertas')">Alertas de Estoque</div>
-          <div class="tab" onclick="estoqueTab('movimentacoes')">Movimentações</div>
-          <div class="tab" onclick="estoqueTab('inventario')">Inventário</div>
+          <div class="tab" onclick="estoqueTab('movimentacoes')">Movimentacoes</div>
+          <div class="tab" onclick="estoqueTab('inventario')">Inventario</div>
+          <div class="tab" onclick="estoqueTab('pedido-compra')">Pedido de Compra</div>
+          <div class="tab" onclick="estoqueTab('codigo-barras')">Codigo de Barras</div>
+          <div class="tab" onclick="estoqueTab('lotes')">Lotes</div>
         </div>
         <div id="estoqueContent"></div>
       </div>
@@ -443,7 +446,35 @@
             <h4 style="margin:20px 0 12px;color:var(--gray-700)">Estoque</h4>
             <div class="form-group"><label>Dias para alerta de validade</label><input class="form-control" name="estoque_alerta_dias_validade" type="number" style="max-width:200px"></div>
 
-            <button type="submit" class="btn btn-primary btn-lg mt-2">Salvar Configurações</button>
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">Alertas por Email</h4>
+            <div class="form-row">
+              <div class="form-group"><label>Ativar</label><select class="form-control" name="alerta_email_ativo"><option value="0">Desativado</option><option value="1">Ativado</option></select></div>
+              <div class="form-group"><label>Email Destinatario</label><input class="form-control" name="alerta_email_destinatario" placeholder="gerente@email.com"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>SMTP Host</label><input class="form-control" name="alerta_email_smtp_host" placeholder="smtp.gmail.com"></div>
+              <div class="form-group"><label>Porta</label><input class="form-control" name="alerta_email_smtp_porta" type="number" placeholder="587"></div>
+              <div class="form-group"><label>Usuario SMTP</label><input class="form-control" name="alerta_email_smtp_usuario"></div>
+              <div class="form-group"><label>Senha SMTP</label><input class="form-control" name="alerta_email_smtp_senha" type="password"></div>
+            </div>
+
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">Alertas por WhatsApp</h4>
+            <div class="form-row">
+              <div class="form-group"><label>Ativar</label><select class="form-control" name="alerta_whatsapp_ativo"><option value="0">Desativado</option><option value="1">Ativado</option></select></div>
+              <div class="form-group"><label>Numero WhatsApp</label><input class="form-control" name="alerta_whatsapp_numero" placeholder="5511999999999"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>URL Webhook (API)</label><input class="form-control" name="alerta_whatsapp_webhook" placeholder="https://api.z-api.io/..."></div>
+              <div class="form-group"><label>Intervalo entre alertas (horas)</label><input class="form-control" name="alerta_intervalo_horas" type="number" placeholder="24"></div>
+            </div>
+
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">Codigo de Barras Interno</h4>
+            <div class="form-row">
+              <div class="form-group"><label>Prefixo (3 digitos)</label><input class="form-control" name="codigo_barras_prefixo" maxlength="3" style="max-width:120px"></div>
+              <div class="form-group"><label>Proximo Sequencial</label><input class="form-control" name="codigo_barras_proximo" type="number" style="max-width:150px"></div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg mt-2">Salvar Configuracoes</button>
           </form>
         </div>
       </div>

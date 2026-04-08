@@ -149,11 +149,17 @@ router.post('/:id/confirmar', (req, res) => {
       if (!produto) continue;
 
       const novoEstoque = produto.estoque_atual + item.quantidade;
-      db.prepare(`UPDATE produtos SET estoque_atual = ?, preco_custo = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?`)
-        .run(novoEstoque, item.valor_unitario, item.produto_id);
+      db.prepare(`UPDATE produtos SET estoque_atual = ?, preco_custo = ?, ultimo_fornecedor_id = COALESCE(?, ultimo_fornecedor_id), atualizado_em = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(novoEstoque, item.valor_unitario, nota.fornecedor_id, item.produto_id);
 
       db.prepare(`INSERT INTO movimentacoes_estoque (produto_id, tipo, quantidade, estoque_anterior, estoque_posterior, motivo, referencia_tipo, referencia_id) VALUES (?, 'entrada', ?, ?, ?, 'Nota de entrada', 'nota_entrada', ?)`)
         .run(item.produto_id, item.quantidade, produto.estoque_atual, novoEstoque, nota.id);
+
+      // Criar lote automaticamente se tiver informações de lote
+      if (item.lote_numero || item.lote_validade) {
+        db.prepare(`INSERT INTO lotes (produto_id, numero_lote, data_fabricacao, data_validade, quantidade, custo_unitario, fornecedor_id, nota_entrada_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(item.produto_id, item.lote_numero || null, item.lote_fabricacao || null, item.lote_validade || null, item.quantidade, item.valor_unitario, nota.fornecedor_id, nota.id);
+      }
     }
 
     db.prepare(`UPDATE notas_entrada SET status = 'confirmada' WHERE id = ?`).run(req.params.id);

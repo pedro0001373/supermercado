@@ -420,6 +420,18 @@ class DatabaseWrapper {
       ['pix_chave', '', 'Chave PIX para recebimentos'],
       ['pix_nome', 'Supermercado Peres', 'Nome do recebedor PIX'],
       ['pix_cidade', '', 'Cidade do recebedor PIX'],
+      ['alerta_email_ativo', '0', 'Ativar alertas por email'],
+      ['alerta_email_destinatario', '', 'Email para receber alertas'],
+      ['alerta_email_smtp_host', '', 'Servidor SMTP (ex: smtp.gmail.com)'],
+      ['alerta_email_smtp_porta', '587', 'Porta SMTP'],
+      ['alerta_email_smtp_usuario', '', 'Usuario SMTP'],
+      ['alerta_email_smtp_senha', '', 'Senha SMTP'],
+      ['alerta_whatsapp_ativo', '0', 'Ativar alertas por WhatsApp'],
+      ['alerta_whatsapp_webhook', '', 'URL webhook WhatsApp (ex: API Evolution/Z-API)'],
+      ['alerta_whatsapp_numero', '', 'Numero WhatsApp destino'],
+      ['alerta_intervalo_horas', '24', 'Intervalo entre alertas (horas)'],
+      ['codigo_barras_prefixo', '789', 'Prefixo para codigos de barras internos'],
+      ['codigo_barras_proximo', '1', 'Proximo numero sequencial para codigo de barras'],
     ];
     for (const [chave, valor, descricao] of configPadrao) {
       this.db.run('INSERT OR IGNORE INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?)', [chave, valor, descricao]);
@@ -474,6 +486,57 @@ class DatabaseWrapper {
       );
     `);
 
+    // Tabela de pedidos de compra
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS pedidos_compra (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fornecedor_id INTEGER,
+        status TEXT DEFAULT 'rascunho',
+        observacoes TEXT,
+        total REAL DEFAULT 0,
+        criado_por TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (fornecedor_id) REFERENCES fornecedores(id)
+      );
+    `);
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS itens_pedido_compra (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pedido_id INTEGER NOT NULL,
+        produto_id INTEGER NOT NULL,
+        quantidade_sugerida REAL DEFAULT 0,
+        quantidade REAL DEFAULT 0,
+        custo_estimado REAL DEFAULT 0,
+        FOREIGN KEY (pedido_id) REFERENCES pedidos_compra(id),
+        FOREIGN KEY (produto_id) REFERENCES produtos(id)
+      );
+    `);
+
+    // Tabela de alertas enviados (evitar duplicatas)
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS alertas_enviados (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        produto_id INTEGER,
+        canal TEXT NOT NULL,
+        detalhes TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (produto_id) REFERENCES produtos(id)
+      );
+    `);
+
+    // Adicionar coluna numero_lote em itens_nota_entrada se nao existir
+    try { this.db.run('ALTER TABLE itens_nota_entrada ADD COLUMN lote_numero TEXT'); } catch(e) {}
+    try { this.db.run('ALTER TABLE itens_nota_entrada ADD COLUMN lote_fabricacao DATE'); } catch(e) {}
+    try { this.db.run('ALTER TABLE itens_nota_entrada ADD COLUMN lote_validade DATE'); } catch(e) {}
+
+    // Adicionar coluna lote_id em itens_venda se nao existir
+    try { this.db.run('ALTER TABLE itens_venda ADD COLUMN lote_id INTEGER'); } catch(e) {}
+
+    // Adicionar coluna ultimo_fornecedor_id em produtos se nao existir
+    try { this.db.run('ALTER TABLE produtos ADD COLUMN ultimo_fornecedor_id INTEGER'); } catch(e) {}
+
     // Adicionar coluna ultimo_acesso em usuarios se nao existir
     try { this.db.run('ALTER TABLE usuarios ADD COLUMN ultimo_acesso DATETIME'); } catch(e) {}
 
@@ -495,6 +558,7 @@ class DatabaseWrapper {
 
     this.save();
     this._iniciarBackupAutomatico();
+    this._iniciarVerificacaoAlertas();
   }
 
   // Migrar senhas em texto puro para bcrypt hash
@@ -557,6 +621,141 @@ class DatabaseWrapper {
       this.save();
     } catch(e) {
       console.error('[Backup] Erro:', e.message);
+    }
+  }
+  // Verificar alertas de estoque periodicamente
+  _iniciarVerificacaoAlertas() {
+    const self = this;
+    // Primeira verificação após 30 segundos
+    setTimeout(function() { self._verificarAlertas(); }, 30000);
+    // Verificar a cada 1 hora
+    setInterval(function() { self._verificarAlertas(); }, 60 * 60 * 1000);
+  }
+
+  async _verificarAlertas() {
+    try {
+      // Buscar configurações
+      const getConfig = (chave) => {
+        const row = this.db.exec("SELECT valor FROM configuracoes WHERE chave = '" + chave + "'");
+        return row.length && row[0].values.length ? row[0].values[0][0] : '';
+      };
+
+      const emailAtivo = getConfig('alerta_email_ativo') === '1';
+      const whatsappAtivo = getConfig('alerta_whatsapp_ativo') === '1';
+      if (!emailAtivo && !whatsappAtivo) return;
+
+      const intervalo = Number(getConfig('alerta_intervalo_horas')) || 24;
+
+      // Verificar último alerta enviado
+      const stmt = this.db.prepare("SELECT criado_em FROM alertas_enviados ORDER BY id DESC LIMIT 1");
+      let ultimoAlerta = null;
+      if (stmt.step()) { ultimoAlerta = stmt.get()[0]; }
+      stmt.free();
+
+      if (ultimoAlerta) {
+        const diff = (Date.now() - new Date(ultimoAlerta + 'Z').getTime()) / (1000 * 60 * 60);
+        if (diff < intervalo) return;
+      }
+
+      // Buscar produtos com estoque baixo
+      const stmtProd = this.db.prepare(
+        "SELECT p.nome, p.estoque_atual, p.estoque_minimo, p.codigo_barras FROM produtos p WHERE p.ativo = 1 AND p.estoque_atual <= p.estoque_minimo AND p.estoque_minimo > 0"
+      );
+      const produtosBaixos = [];
+      while (stmtProd.step()) {
+        const cols = stmtProd.getColumnNames();
+        const vals = stmtProd.get();
+        const row = {};
+        cols.forEach((c, i) => row[c] = vals[i]);
+        produtosBaixos.push(row);
+      }
+      stmtProd.free();
+
+      if (produtosBaixos.length === 0) return;
+
+      const mensagem = this._montarMensagemAlerta(produtosBaixos);
+
+      if (emailAtivo) {
+        const emailDest = getConfig('alerta_email_destinatario');
+        const smtpHost = getConfig('alerta_email_smtp_host');
+        const smtpPorta = getConfig('alerta_email_smtp_porta');
+        const smtpUser = getConfig('alerta_email_smtp_usuario');
+        const smtpSenha = getConfig('alerta_email_smtp_senha');
+        if (emailDest && smtpHost) {
+          this._enviarEmail(smtpHost, Number(smtpPorta) || 587, smtpUser, smtpSenha, emailDest, mensagem, produtosBaixos.length);
+        }
+      }
+
+      if (whatsappAtivo) {
+        const webhook = getConfig('alerta_whatsapp_webhook');
+        const numero = getConfig('alerta_whatsapp_numero');
+        if (webhook && numero) {
+          this._enviarWhatsApp(webhook, numero, mensagem);
+        }
+      }
+
+      // Registrar alerta enviado
+      this.db.run("INSERT INTO alertas_enviados (tipo, canal, detalhes) VALUES ('estoque_baixo', 'auto', ?)",
+        [produtosBaixos.length + ' produtos com estoque baixo']);
+      this.save();
+
+      console.log('[Alertas] Notificacao enviada: ' + produtosBaixos.length + ' produtos com estoque baixo');
+    } catch(e) {
+      console.error('[Alertas] Erro:', e.message);
+    }
+  }
+
+  _montarMensagemAlerta(produtos) {
+    let msg = '⚠️ ALERTA DE ESTOQUE BAIXO - Supermercado Peres\n';
+    msg += '━━━━━━━━━━━━━━━━━━━━━━━\n';
+    msg += produtos.length + ' produto(s) com estoque abaixo do mínimo:\n\n';
+    produtos.forEach(function(p) {
+      msg += '• ' + p.nome + '\n';
+      msg += '  Estoque: ' + p.estoque_atual + ' | Mínimo: ' + p.estoque_minimo + '\n';
+      msg += '  Faltam: ' + (p.estoque_minimo - p.estoque_atual) + ' unidades\n\n';
+    });
+    msg += '━━━━━━━━━━━━━━━━━━━━━━━\n';
+    msg += 'Data: ' + new Date().toLocaleString('pt-BR') + '\n';
+    msg += 'Sistema Supermercado Peres';
+    return msg;
+  }
+
+  async _enviarEmail(host, porta, user, senha, dest, mensagem, qtdProdutos) {
+    try {
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: host, port: porta, secure: porta === 465,
+        auth: user ? { user: user, pass: senha } : undefined
+      });
+      await transporter.sendMail({
+        from: user || 'sistema@supermercadoperes.com',
+        to: dest,
+        subject: '⚠️ Alerta: ' + qtdProdutos + ' produto(s) com estoque baixo',
+        text: mensagem
+      });
+      console.log('[Alertas] Email enviado para ' + dest);
+    } catch(e) {
+      console.error('[Alertas] Erro ao enviar email:', e.message);
+    }
+  }
+
+  async _enviarWhatsApp(webhook, numero, mensagem) {
+    try {
+      const http = require(webhook.startsWith('https') ? 'https' : 'http');
+      const url = new URL(webhook);
+      const body = JSON.stringify({ number: numero, text: mensagem });
+      const opts = {
+        hostname: url.hostname, port: url.port, path: url.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      };
+      const req = http.request(opts, (res) => {
+        console.log('[Alertas] WhatsApp webhook respondeu: ' + res.statusCode);
+      });
+      req.on('error', (e) => console.error('[Alertas] Erro WhatsApp:', e.message));
+      req.write(body); req.end();
+    } catch(e) {
+      console.error('[Alertas] Erro ao enviar WhatsApp:', e.message);
     }
   }
 }
