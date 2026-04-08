@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models/db');
+const { registrarLog } = require('../middleware/logger');
 
 function wrap(fn) {
   return (req, res, next) => { try { const r = fn(req, res, next); if (r && r.catch) r.catch(e => res.status(500).json({ error: e.message })); } catch (e) { res.status(500).json({ error: e.message }); } };
@@ -42,6 +43,7 @@ router.post('/abrir', wrap((req, res) => {
   const result = db.prepare(`INSERT INTO caixas (operador, numero_caixa, valor_abertura) VALUES (?, ?, ?)`)
     .run(operador, numero_caixa || 1, valor_abertura || 0);
 
+  registrarLog(null, operador, 'abrir_caixa', 'caixa', 'Caixa #' + (numero_caixa||1) + ' aberto - R$ ' + (valor_abertura||0).toFixed(2), req.ip);
   res.status(201).json({ id: result.lastInsertRowid, message: 'Caixa aberto com sucesso' });
 }));
 
@@ -87,6 +89,7 @@ router.post('/fechar', wrap((req, res) => {
     WHERE id = ?
   `).run(vf, valorDinheiro, valorDebito, valorCredito, valorPix, valorOutros, totalVendas, totalSangrias, totalSuprimentos, diferenca, observacoes || null, caixa.id);
 
+  registrarLog(null, null, 'fechar_caixa', 'caixa', 'Caixa #' + caixa.numero_caixa + ' fechado - Vendas: R$ ' + totalVendas.toFixed(2) + ' Dif: R$ ' + diferenca.toFixed(2), req.ip);
   res.json({
     message: 'Caixa fechado com sucesso',
     resumo: { totalVendas, valorDinheiro, valorDebito, valorCredito, valorPix, totalSangrias, totalSuprimentos, esperadoEmCaixa, diferenca }
@@ -103,6 +106,7 @@ router.post('/sangria', wrap((req, res) => {
 
   db.prepare(`INSERT INTO movimentacoes_caixa (caixa_id, tipo, valor, motivo, operador) VALUES (?, 'sangria', ?, ?, ?)`)
     .run(caixa.id, valor, motivo || null, operador || null);
+  registrarLog(null, operador, 'sangria', 'caixa', 'Sangria R$ ' + valor.toFixed(2) + (motivo ? ' - ' + motivo : ''), req.ip);
   res.json({ message: 'Sangria registrada' });
 }));
 
@@ -116,6 +120,7 @@ router.post('/suprimento', wrap((req, res) => {
 
   db.prepare(`INSERT INTO movimentacoes_caixa (caixa_id, tipo, valor, motivo, operador) VALUES (?, 'suprimento', ?, ?, ?)`)
     .run(caixa.id, valor, motivo || null, operador || null);
+  registrarLog(null, operador, 'suprimento', 'caixa', 'Suprimento R$ ' + valor.toFixed(2) + (motivo ? ' - ' + motivo : ''), req.ip);
   res.json({ message: 'Suprimento registrado' });
 }));
 

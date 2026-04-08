@@ -100,6 +100,12 @@
         <div class="nav-item" data-page="usuarios" onclick="navigateTo('usuarios')">
           <span class="icon">&#x1F464;</span><span>Usuarios</span>
         </div>
+        <div class="nav-item" data-page="logs" onclick="navigateTo('logs')">
+          <span class="icon">&#x1F4DD;</span><span>Logs / Auditoria</span>
+        </div>
+        <div class="nav-item" data-page="backups" onclick="navigateTo('backups')">
+          <span class="icon">&#x1F4BE;</span><span>Backups</span>
+        </div>
       </div>
       <div class="nav-section" id="navLogout">
         <div class="nav-item" onclick="fazerLogout()" style="margin-top:8px;color:var(--danger)">
@@ -117,7 +123,7 @@
       <div class="header-actions">
         <span id="caixaStatus" class="status status-danger" style="cursor:pointer" onclick="navigateTo('pdv')">Caixa Fechado</span>
         <span class="text-muted" id="headerDate"></span>
-        <span class="text-muted" id="headerUser"></span>
+        <span class="text-muted" id="headerUser" style="cursor:pointer" onclick="modalAlterarSenha()" title="Clique para alterar senha"></span>
       </div>
     </header>
 
@@ -423,9 +429,52 @@
             <button class="btn btn-primary" onclick="modalUsuario()">+ Novo Usuario</button>
           </div>
           <table>
-            <thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Status</th><th>Acoes</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Status</th><th>Ultimo Acesso</th><th>Acoes</th></tr></thead>
             <tbody id="usuariosBody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- ============ LOGS ============ -->
+      <div class="page" id="page-logs">
+        <div class="card">
+          <div class="table-header">
+            <h3>Logs de Auditoria</h3>
+            <div style="display:flex;gap:8px">
+              <select class="form-control" id="logFiltroModulo" onchange="carregarLogs()" style="width:150px">
+                <option value="">Todos os modulos</option>
+                <option value="auth">Login</option>
+                <option value="vendas">Vendas</option>
+                <option value="caixa">Caixa</option>
+                <option value="estoque">Estoque</option>
+                <option value="usuarios">Usuarios</option>
+                <option value="sistema">Sistema</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-container" style="box-shadow:none">
+            <table>
+              <thead><tr><th>Data/Hora</th><th>Usuario</th><th>Acao</th><th>Modulo</th><th>Detalhes</th><th>IP</th></tr></thead>
+              <tbody id="logsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ BACKUPS ============ -->
+      <div class="page" id="page-backups">
+        <div class="card">
+          <div class="table-header">
+            <h3>Backups do Sistema</h3>
+            <button class="btn btn-primary" onclick="fazerBackup()">Fazer Backup Agora</button>
+          </div>
+          <div class="alert alert-info">Backups automaticos sao realizados a cada 6 horas. Os ultimos 20 backups sao mantidos.</div>
+          <div class="table-container" style="box-shadow:none">
+            <table>
+              <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Data/Hora</th></tr></thead>
+              <tbody id="backupsBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models/db');
+const { registrarLog } = require('../middleware/logger');
 
 // Listar vendas
 router.get('/', (req, res) => {
@@ -97,6 +98,7 @@ router.post('/', (req, res) => {
 
   try {
     const resultado = transaction();
+    registrarLog(null, null, 'nova_venda', 'vendas', 'Venda #' + resultado.numero_venda + ' - ' + resultado.total.toFixed(2), req.ip);
     res.status(201).json(resultado);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -127,6 +129,7 @@ router.post('/:id/cancelar', (req, res) => {
   });
   transaction();
 
+  registrarLog(null, null, 'cancelar_venda', 'vendas', 'Venda #' + venda.numero_venda + ' cancelada - R$ ' + venda.total.toFixed(2), req.ip);
   res.json({ message: 'Venda cancelada e estoque devolvido' });
 });
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models/db');
+const { registrarLog } = require('../middleware/logger');
 
 // Produtos com estoque baixo
 router.get('/alertas', (req, res) => {
@@ -56,6 +57,7 @@ router.post('/entrada', (req, res) => {
   });
   transaction();
 
+  registrarLog(null, usuario, 'entrada_estoque', 'estoque', produto.nome + ': +' + quantidade + ' (estoque: ' + novoEstoque + ')', req.ip);
   res.json({ message: 'Entrada registrada', estoque_atual: novoEstoque });
 });
 
@@ -79,6 +81,7 @@ router.post('/saida', (req, res) => {
   });
   transaction();
 
+  registrarLog(null, usuario, 'saida_estoque', 'estoque', produto.nome + ': -' + quantidade + ' (estoque: ' + novoEstoque + ')', req.ip);
   res.json({ message: 'Saída registrada', estoque_atual: novoEstoque });
 });
 
@@ -104,6 +107,7 @@ router.post('/inventario', (req, res) => {
   });
   transaction();
 
+  registrarLog(null, usuario, 'inventario', 'estoque', 'Inventario ajustado: ' + itens.length + ' itens', req.ip);
   res.json({ message: `Inventário atualizado: ${itens.length} itens` });
 });
 
@@ -127,6 +131,7 @@ router.post('/perda', (req, res) => {
   });
   transaction();
 
+  registrarLog(null, usuario, 'perda', 'estoque', produto.nome + ': -' + quantidade + ' (' + (motivo || 'Perda') + ')', req.ip);
   res.json({ message: 'Perda registrada', estoque_atual: novoEstoque });
 });
 

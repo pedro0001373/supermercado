@@ -106,7 +106,7 @@ function fazerLogout() {
 var perfilPermissoes = {
   operador: ['pdv'],
   gerente: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios'],
-  admin: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios', 'configuracoes', 'usuarios']
+  admin: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios', 'configuracoes', 'usuarios', 'logs', 'backups']
 };
 
 function temPermissao(page) {
@@ -193,7 +193,7 @@ function navigateTo(page) {
     categorias: 'Categorias', fornecedores: 'Fornecedores', estoque: 'Controle de Estoque',
     validade: 'Controle de Validade', 'notas-entrada': 'Notas de Entrada',
     nfce: 'NFC-e', vendas: 'Vendas', relatorios: 'Relatorios', configuracoes: 'Configuracoes',
-    usuarios: 'Usuarios'
+    usuarios: 'Usuarios', logs: 'Logs / Auditoria', backups: 'Backups'
   };
   document.getElementById('pageTitle').textContent = titles[page] || page;
   currentPage = page;
@@ -216,6 +216,8 @@ function navigateTo(page) {
     case 'configuracoes': carregarConfiguracoes(); break;
     case 'pdv': verificarCaixa(); break;
     case 'usuarios': carregarUsuarios(); break;
+    case 'logs': carregarLogs(); break;
+    case 'backups': carregarBackups(); break;
   }
 }
 
@@ -878,7 +880,7 @@ async function carregarUsuarios() {
   try {
     var data = await api('/api/auth/usuarios');
     document.getElementById('usuariosBody').innerHTML = data.map(function(u) {
-      return '<tr><td>' + u.nome + '</td><td>' + u.login + '</td><td><span class="status ' + (u.perfil==='admin'?'status-danger':u.perfil==='gerente'?'status-warning':'status-primary') + '">' + u.perfil + '</span></td><td><span class="status ' + (u.ativo?'status-success':'status-danger') + '">' + (u.ativo?'Ativo':'Inativo') + '</span></td><td><button class="btn btn-sm btn-outline" onclick="modalUsuario(' + u.id + ',\'' + u.nome.replace(/'/g,"\\'") + '\',\'' + u.login + '\',\'' + u.perfil + '\',' + u.ativo + ')">Editar</button></td></tr>';
+      return '<tr><td>' + u.nome + '</td><td>' + u.login + '</td><td><span class="status ' + (u.perfil==='admin'?'status-danger':u.perfil==='gerente'?'status-warning':'status-primary') + '">' + u.perfil + '</span></td><td><span class="status ' + (u.ativo?'status-success':'status-danger') + '">' + (u.ativo?'Ativo':'Inativo') + '</span></td><td>' + (u.ultimo_acesso ? formatDateTime(u.ultimo_acesso) : 'Nunca') + '</td><td><button class="btn btn-sm btn-outline" onclick="modalUsuario(' + u.id + ',\'' + u.nome.replace(/'/g,"\\'") + '\',\'' + u.login + '\',\'' + u.perfil + '\',' + u.ativo + ')">Editar</button> <button class="btn btn-sm btn-warning" onclick="modalResetSenha(' + u.id + ',\'' + u.nome.replace(/'/g,"\\'") + '\')">Resetar Senha</button></td></tr>';
     }).join('');
   } catch(e) { console.error(e); }
 }
@@ -903,6 +905,88 @@ async function salvarUsuario(id) {
     else await api('/api/auth/usuarios', { method: 'POST', body: d });
     toast(id ? 'Usuario atualizado!' : 'Usuario criado!');
     fecharModal(); carregarUsuarios();
+  } catch(e) {}
+}
+
+// ============ RESET SENHA ============
+function modalResetSenha(id, nome) {
+  abrirModal('Resetar Senha - ' + nome,
+    '<form id="formResetSenha"><div class="form-group"><label>Nova Senha *</label><input class="form-control" name="nova_senha" type="password" minlength="4" required></div><div class="form-group"><label>Confirmar Nova Senha *</label><input class="form-control" name="confirmar" type="password" minlength="4" required></div></form>',
+    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-warning" onclick="resetarSenha(' + id + ')">Resetar Senha</button>');
+}
+
+async function resetarSenha(id) {
+  try {
+    var d = Object.fromEntries(new FormData(document.getElementById('formResetSenha')));
+    if (d.nova_senha !== d.confirmar) return toast('Senhas nao conferem', 'error');
+    if (d.nova_senha.length < 4) return toast('Senha deve ter no minimo 4 caracteres', 'error');
+    await api('/api/auth/usuarios/' + id + '/reset-senha', { method: 'POST', body: { nova_senha: d.nova_senha } });
+    toast('Senha resetada com sucesso!');
+    fecharModal();
+  } catch(e) {}
+}
+
+// ============ ALTERAR PROPRIA SENHA ============
+function modalAlterarSenha() {
+  abrirModal('Alterar Minha Senha',
+    '<form id="formAlterarSenha"><div class="form-group"><label>Senha Atual *</label><input class="form-control" name="senha_atual" type="password" required></div><div class="form-group"><label>Nova Senha *</label><input class="form-control" name="nova_senha" type="password" minlength="4" required></div><div class="form-group"><label>Confirmar Nova Senha *</label><input class="form-control" name="confirmar" type="password" minlength="4" required></div></form>',
+    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="alterarSenha()">Alterar Senha</button>');
+}
+
+async function alterarSenha() {
+  try {
+    var d = Object.fromEntries(new FormData(document.getElementById('formAlterarSenha')));
+    if (d.nova_senha !== d.confirmar) return toast('Senhas nao conferem', 'error');
+    if (d.nova_senha.length < 4) return toast('Senha deve ter no minimo 4 caracteres', 'error');
+    await api('/api/auth/alterar-senha', { method: 'POST', body: { usuario_id: currentUser.id, senha_atual: d.senha_atual, nova_senha: d.nova_senha } });
+    toast('Senha alterada com sucesso!');
+    fecharModal();
+  } catch(e) {}
+}
+
+// ============ LOGS ============
+async function carregarLogs() {
+  try {
+    var modulo = document.getElementById('logFiltroModulo') ? document.getElementById('logFiltroModulo').value : '';
+    var url = '/api/auth/logs?limit=200';
+    if (modulo) url += '&modulo=' + modulo;
+    var data = await api(url);
+    var acaoLabels = {
+      login: 'Login', login_falhou: 'Login Falhou', login_bloqueado: 'Bloqueado',
+      nova_venda: 'Nova Venda', cancelar_venda: 'Cancelar Venda',
+      abrir_caixa: 'Abrir Caixa', fechar_caixa: 'Fechar Caixa', sangria: 'Sangria', suprimento: 'Suprimento',
+      entrada_estoque: 'Entrada', saida_estoque: 'Saida', inventario: 'Inventario', perda: 'Perda',
+      criar_usuario: 'Criar Usuario', editar_usuario: 'Editar Usuario', reset_senha: 'Reset Senha',
+      alterar_senha: 'Alterar Senha', alterar_senha_falhou: 'Alterar Senha Falhou',
+      backup_manual: 'Backup Manual'
+    };
+    var moduloLabels = { auth: 'Login', vendas: 'Vendas', caixa: 'Caixa', estoque: 'Estoque', usuarios: 'Usuarios', sistema: 'Sistema' };
+    document.getElementById('logsBody').innerHTML = data.logs.length
+      ? data.logs.map(function(l) {
+        var acaoClass = l.acao.includes('falhou') || l.acao.includes('bloqueado') || l.acao.includes('cancelar') || l.acao === 'perda' ? 'text-danger' : '';
+        return '<tr><td>' + formatDateTime(l.criado_em) + '</td><td>' + (l.usuario_nome || '-') + '</td><td class="' + acaoClass + '"><strong>' + (acaoLabels[l.acao] || l.acao) + '</strong></td><td><span class="status status-primary">' + (moduloLabels[l.modulo] || l.modulo) + '</span></td><td>' + (l.detalhes || '-') + '</td><td class="font-mono" style="font-size:11px">' + (l.ip || '-') + '</td></tr>';
+      }).join('')
+      : '<tr><td colspan="6" class="text-center text-muted" style="padding:30px">Nenhum log encontrado</td></tr>';
+  } catch(e) { console.error(e); }
+}
+
+// ============ BACKUPS ============
+async function carregarBackups() {
+  try {
+    var data = await api('/api/auth/backups');
+    document.getElementById('backupsBody').innerHTML = data.length
+      ? data.map(function(b) {
+        return '<tr><td class="font-mono">' + b.arquivo + '</td><td>' + (b.tamanho / 1024).toFixed(1) + ' KB</td><td>' + formatDateTime(b.criado_em) + '</td></tr>';
+      }).join('')
+      : '<tr><td colspan="3" class="text-center text-muted" style="padding:30px">Nenhum backup encontrado</td></tr>';
+  } catch(e) { console.error(e); }
+}
+
+async function fazerBackup() {
+  try {
+    await api('/api/auth/backups', { method: 'POST' });
+    toast('Backup realizado com sucesso!');
+    carregarBackups();
   } catch(e) {}
 }
 

@@ -1,4 +1,5 @@
 const initSqlJs = require('sql.js');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 
@@ -424,8 +425,45 @@ class DatabaseWrapper {
       this.db.run('INSERT OR IGNORE INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?)', [chave, valor, descricao]);
     }
 
-    // Usuário admin padrão
-    this.db.run("INSERT OR IGNORE INTO usuarios (nome, login, senha, perfil) VALUES ('Administrador', 'admin', 'admin123', 'admin')");
+    // Tabela de logs de auditoria
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario_id INTEGER,
+        usuario_nome TEXT,
+        acao TEXT NOT NULL,
+        modulo TEXT NOT NULL,
+        detalhes TEXT,
+        ip TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_logs_usuario ON logs(usuario_id)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_logs_modulo ON logs(modulo)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_logs_data ON logs(criado_em)');
+
+    // Tabela de backups
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS backups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        arquivo TEXT NOT NULL,
+        tamanho INTEGER,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Adicionar coluna ultimo_acesso em usuarios se nao existir
+    try { this.db.run('ALTER TABLE usuarios ADD COLUMN ultimo_acesso DATETIME'); } catch(e) {}
+
+    // Usuário admin padrão com senha hash
+    const adminExists = this.db.exec("SELECT id FROM usuarios WHERE login='admin'");
+    if (!adminExists.length || !adminExists[0].values.length) {
+      const hash = bcrypt.hashSync('admin123', 10);
+      this.db.run("INSERT INTO usuarios (nome, login, senha, perfil) VALUES ('Administrador', 'admin', ?, 'admin')", [hash]);
+    } else {
+      // Migrar senhas em texto puro para hash
+      this._migrarSenhas();
+    }
 
     // Categorias padrão
     const categorias = ['Mercearia', 'Bebidas', 'Frios e Laticínios', 'Carnes', 'Hortifruti', 'Padaria', 'Limpeza', 'Higiene Pessoal', 'Congelados', 'Pet Shop', 'Bazar', 'Outros'];
@@ -434,6 +472,70 @@ class DatabaseWrapper {
     }
 
     this.save();
+    this._iniciarBackupAutomatico();
+  }
+
+  // Migrar senhas em texto puro para bcrypt hash
+  _migrarSenhas() {
+    const stmt = this.db.prepare('SELECT id, senha FROM usuarios');
+    const users = [];
+    while (stmt.step()) {
+      const cols = stmt.getColumnNames();
+      const vals = stmt.get();
+      users.push({ id: vals[0], senha: vals[1] });
+    }
+    stmt.free();
+    for (const u of users) {
+      // Se a senha nao comeca com $2a$ ou $2b$, e texto puro
+      if (u.senha && !u.senha.startsWith('$2a$') && !u.senha.startsWith('$2b$')) {
+        const hash = bcrypt.hashSync(u.senha, 10);
+        this.db.run('UPDATE usuarios SET senha = ? WHERE id = ?', [hash, u.id]);
+      }
+    }
+  }
+
+  // Backup automatico a cada 6 horas
+  _iniciarBackupAutomatico() {
+    const self = this;
+    // Backup inicial ao iniciar
+    setTimeout(function() { self.fazerBackup(); }, 5000);
+    // Backup a cada 6 horas
+    setInterval(function() { self.fazerBackup(); }, 6 * 60 * 60 * 1000);
+  }
+
+  fazerBackup() {
+    try {
+      const backupDir = path.join(__dirname, '..', '..', 'data', 'backups');
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+      const agora = new Date();
+      const nome = 'backup_' + agora.getFullYear() +
+        ('0' + (agora.getMonth()+1)).slice(-2) +
+        ('0' + agora.getDate()).slice(-2) + '_' +
+        ('0' + agora.getHours()).slice(-2) +
+        ('0' + agora.getMinutes()).slice(-2) +
+        ('0' + agora.getSeconds()).slice(-2) + '.db';
+      const backupPath = path.join(backupDir, nome);
+
+      const data = this.db.export();
+      const buffer = Buffer.from(data);
+      fs.writeFileSync(backupPath, buffer);
+
+      // Registrar backup
+      this.db.run('INSERT INTO backups (arquivo, tamanho) VALUES (?, ?)', [nome, buffer.length]);
+
+      // Manter apenas os ultimos 20 backups
+      const arquivos = fs.readdirSync(backupDir).filter(f => f.startsWith('backup_')).sort();
+      while (arquivos.length > 20) {
+        const antigo = arquivos.shift();
+        try { fs.unlinkSync(path.join(backupDir, antigo)); } catch(e) {}
+      }
+
+      console.log('[Backup] Salvo: ' + nome + ' (' + (buffer.length / 1024).toFixed(1) + ' KB)');
+      this.save();
+    } catch(e) {
+      console.error('[Backup] Erro:', e.message);
+    }
   }
 }
 
