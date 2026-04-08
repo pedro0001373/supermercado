@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supermercado Peres - Sistema de Gestão</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ============ TELA DE LOGIN ============ -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="logo" style="width:56px;height:56px;font-size:28px;background:linear-gradient(135deg,#4f9cf7,#6366f1);border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;margin:0 auto 16px">P</div>
+      <h1>Supermercado Peres</h1>
+      <p>Sistema de Gestao</p>
+    </div>
+    <form id="loginForm" onsubmit="fazerLogin(event)">
+      <div class="form-group">
+        <label>Usuario</label>
+        <input class="form-control" id="loginUser" placeholder="Digite seu login" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input class="form-control" id="loginPass" type="password" placeholder="Digite sua senha" autocomplete="current-password" required>
+      </div>
+      <div id="loginError" class="alert alert-danger" style="display:none"></div>
+      <button type="submit" class="btn btn-primary btn-lg btn-block" id="loginBtn">Entrar</button>
+    </form>
+    <div class="login-footer">
+      <span>Usuarios padrao: admin / admin123</span>
+    </div>
+  </div>
+</div>
+
+<div class="app-container" id="appContainer" style="display:none">
+  <!-- OVERLAY MOBILE -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">P</div>
+      <h1>Supermercado Peres</h1>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-section-title">Principal</div>
+        <div class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">
+          <span class="icon">&#x1F4CA;</span><span>Dashboard</span>
+        </div>
+        <div class="nav-item" data-page="pdv" onclick="navigateTo('pdv')">
+          <span class="icon">&#x1F4B3;</span><span>PDV - Caixa</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Cadastros</div>
+        <div class="nav-item" data-page="produtos" onclick="navigateTo('produtos')">
+          <span class="icon">&#x1F4E6;</span><span>Produtos</span>
+        </div>
+        <div class="nav-item" data-page="categorias" onclick="navigateTo('categorias')">
+          <span class="icon">&#x1F3F7;</span><span>Categorias</span>
+        </div>
+        <div class="nav-item" data-page="fornecedores" onclick="navigateTo('fornecedores')">
+          <span class="icon">&#x1F69A;</span><span>Fornecedores</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Operacional</div>
+        <div class="nav-item" data-page="estoque" onclick="navigateTo('estoque')">
+          <span class="icon">&#x1F4E5;</span><span>Estoque</span>
+          <span class="badge" id="badgeEstoque" style="display:none">0</span>
+        </div>
+        <div class="nav-item" data-page="validade" onclick="navigateTo('validade')">
+          <span class="icon">&#x23F3;</span><span>Validade</span>
+          <span class="badge" id="badgeValidade" style="display:none">0</span>
+        </div>
+        <div class="nav-item" data-page="notas-entrada" onclick="navigateTo('notas-entrada')">
+          <span class="icon">&#x1F4C4;</span><span>Notas de Entrada</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Fiscal</div>
+        <div class="nav-item" data-page="nfce" onclick="navigateTo('nfce')">
+          <span class="icon">&#x1F9FE;</span><span>NFC-e</span>
+        </div>
+        <div class="nav-item" data-page="vendas" onclick="navigateTo('vendas')">
+          <span class="icon">&#x1F4B0;</span><span>Vendas</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">Sistema</div>
+        <div class="nav-item" data-page="relatorios" onclick="navigateTo('relatorios')">
+          <span class="icon">&#x1F4C8;</span><span>Relatórios</span>
+        </div>
+        <div class="nav-item" data-page="configuracoes" onclick="navigateTo('configuracoes')">
+          <span class="icon">&#x2699;</span><span>Configuracoes</span>
+        </div>
+        <div class="nav-item" data-page="usuarios" onclick="navigateTo('usuarios')">
+          <span class="icon">&#x1F464;</span><span>Usuarios</span>
+        </div>
+      </div>
+      <div class="nav-section" id="navLogout">
+        <div class="nav-item" onclick="fazerLogout()" style="margin-top:8px;color:var(--danger)">
+          <span class="icon">&#x1F6AA;</span><span>Sair</span>
+        </div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-content">
+    <header class="header">
+      <button class="menu-toggle" onclick="toggleSidebar()">&#9776;</button>
+      <span class="page-title" id="pageTitle">Dashboard</span>
+      <div class="header-actions">
+        <span id="caixaStatus" class="status status-danger" style="cursor:pointer" onclick="navigateTo('pdv')">Caixa Fechado</span>
+        <span class="text-muted" id="headerDate"></span>
+        <span class="text-muted" id="headerUser"></span>
+      </div>
+    </header>
+
+    <div class="page-content">
+
+      <!-- ============ DASHBOARD ============ -->
+      <div class="page active" id="page-dashboard">
+        <div class="cards-grid" id="dashboardCards"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="dashboardCharts">
+          <div class="card">
+            <h3 style="margin-bottom:12px">Vendas - Últimos 7 dias</h3>
+            <div id="chart7dias" style="height:200px;display:flex;align-items:flex-end;gap:6px"></div>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:12px">Top Produtos (Mês)</h3>
+            <div id="chartTopProdutos"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+          <div class="card">
+            <h3 style="margin-bottom:12px">Formas de Pagamento (Mês)</h3>
+            <div id="chartPagamentos"></div>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:12px">Alertas</h3>
+            <div id="dashboardAlertas"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ PDV ============ -->
+      <div class="page" id="page-pdv">
+        <div id="pdvCaixaFechado" class="card" style="text-align:center;padding:60px">
+          <div style="font-size:48px;margin-bottom:16px">&#x1F4B3;</div>
+          <h2>Caixa Fechado</h2>
+          <p class="text-muted mt-1">Abra o caixa para iniciar as vendas</p>
+          <button class="btn btn-primary btn-lg mt-2" onclick="abrirCaixaModal()">Abrir Caixa</button>
+        </div>
+        <div id="pdvCaixaAberto" style="display:none">
+          <div class="pdv-container">
+            <div class="pdv-items">
+              <div class="pdv-search">
+                <input type="text" id="pdvBuscaInput" placeholder="Leia o código de barras ou digite o nome do produto..." onkeydown="pdvBuscarProduto(event)" autofocus>
+              </div>
+              <div class="pdv-table">
+                <table>
+                  <thead>
+                    <tr><th style="width:40px">#</th><th>Produto</th><th style="width:80px">Qtd</th><th style="width:100px">Unit.</th><th style="width:100px">Subtotal</th><th style="width:40px"></th></tr>
+                  </thead>
+                  <tbody id="pdvItensBody"></tbody>
+                </table>
+              </div>
+              <div class="pdv-total">
+                <span class="total-label">TOTAL</span>
+                <span class="total-value" id="pdvTotalValor">R$ 0,00</span>
+              </div>
+            </div>
+            <div class="pdv-sidebar">
+              <div class="pdv-info">
+                <h4>Venda Atual</h4>
+                <div>Itens: <strong id="pdvQtdItens">0</strong></div>
+                <div>Subtotal: <strong id="pdvSubtotal">R$ 0,00</strong></div>
+                <div>Desconto: <strong id="pdvDesconto">R$ 0,00</strong></div>
+              </div>
+              <div class="pdv-actions">
+                <button class="btn btn-success pdv-pay-btn" onclick="pdvPagamento()">&#x1F4B5; PAGAMENTO (F2)</button>
+                <button class="btn btn-outline" onclick="pdvDesconto()">% Desconto</button>
+                <button class="btn btn-outline" onclick="pdvCpf()">CPF na Nota</button>
+                <button class="btn btn-warning" onclick="pdvSangria()">Sangria</button>
+                <button class="btn btn-primary" onclick="pdvSuprimento()">Suprimento</button>
+                <button class="btn btn-danger" onclick="pdvCancelarVenda()">Cancelar Venda</button>
+                <button class="btn btn-outline" onclick="fecharCaixaModal()">Fechar Caixa</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ PRODUTOS ============ -->
+      <div class="page" id="page-produtos">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Produtos Cadastrados</h3>
+            <div class="flex gap-1">
+              <div class="search-box">
+                <span class="search-icon">&#x1F50D;</span>
+                <input type="text" class="form-control" id="buscaProduto" placeholder="Buscar produto..." oninput="carregarProdutos()">
+              </div>
+              <button class="btn btn-primary" onclick="modalProduto()">+ Novo Produto</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Código</th><th>Nome</th><th>Categoria</th><th>Estoque</th>
+                  <th>P. Custo</th><th>P. Venda</th><th>Status</th><th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="produtosBody"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="produtosPagination"></div>
+        </div>
+      </div>
+
+      <!-- ============ CATEGORIAS ============ -->
+      <div class="page" id="page-categorias">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Categorias</h3>
+            <button class="btn btn-primary" onclick="modalCategoria()">+ Nova Categoria</button>
+          </div>
+          <table>
+            <thead><tr><th>ID</th><th>Nome</th><th>Descrição</th><th>Ações</th></tr></thead>
+            <tbody id="categoriasBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ============ FORNECEDORES ============ -->
+      <div class="page" id="page-fornecedores">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Fornecedores</h3>
+            <div class="flex gap-1">
+              <input type="text" class="form-control" id="buscaFornecedor" placeholder="Buscar..." oninput="carregarFornecedores()">
+              <button class="btn btn-primary" onclick="modalFornecedor()">+ Novo Fornecedor</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead><tr><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Telefone</th><th>Cidade/UF</th><th>Ações</th></tr></thead>
+              <tbody id="fornecedoresBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ ESTOQUE ============ -->
+      <div class="page" id="page-estoque">
+        <div class="tabs">
+          <div class="tab active" onclick="estoqueTab('alertas')">Alertas de Estoque</div>
+          <div class="tab" onclick="estoqueTab('movimentacoes')">Movimentações</div>
+          <div class="tab" onclick="estoqueTab('inventario')">Inventário</div>
+        </div>
+        <div id="estoqueContent"></div>
+      </div>
+
+      <!-- ============ VALIDADE ============ -->
+      <div class="page" id="page-validade">
+        <div class="tabs">
+          <div class="tab active" onclick="validadeTab('alertas')">Próximos a Vencer</div>
+          <div class="tab" onclick="validadeTab('vencidos')">Vencidos</div>
+          <div class="tab" onclick="validadeTab('promocoes')">Sugestão de Promoção</div>
+        </div>
+        <div id="validadeContent"></div>
+      </div>
+
+      <!-- ============ NOTAS ENTRADA ============ -->
+      <div class="page" id="page-notas-entrada">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Notas Fiscais de Entrada</h3>
+            <div class="flex gap-1">
+              <button class="btn btn-primary" onclick="modalNotaEntrada()">+ Lançar Nota</button>
+              <button class="btn btn-outline" onclick="importarXml()">&#x1F4C1; Importar XML</button>
+              <input type="file" id="xmlFileInput" accept=".xml" style="display:none" onchange="processarXml(this)">
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead><tr><th>Nº</th><th>Fornecedor</th><th>Data Entrada</th><th>Valor Total</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody id="notasEntradaBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ NFC-e ============ -->
+      <div class="page" id="page-nfce">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Notas Fiscais - NFC-e</h3>
+            <div class="flex gap-1">
+              <select class="form-control" style="width:auto" id="filtroNfceStatus" onchange="carregarNfce()">
+                <option value="">Todos</option>
+                <option value="autorizada">Autorizadas</option>
+                <option value="cancelada">Canceladas</option>
+                <option value="inutilizada">Inutilizadas</option>
+              </select>
+              <button class="btn btn-outline" onclick="modalInutilizar()">Inutilizar Numeração</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead><tr><th>Nº</th><th>Venda</th><th>Chave de Acesso</th><th>Data</th><th>Valor</th><th>Ambiente</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody id="nfceBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ VENDAS ============ -->
+      <div class="page" id="page-vendas">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Histórico de Vendas</h3>
+            <div class="flex gap-1">
+              <input type="date" class="form-control" id="vendasDataInicio" style="width:auto">
+              <input type="date" class="form-control" id="vendasDataFim" style="width:auto">
+              <button class="btn btn-primary" onclick="carregarVendas()">Filtrar</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead><tr><th>Nº</th><th>Data/Hora</th><th>Itens</th><th>Total</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody id="vendasBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ RELATÓRIOS ============ -->
+      <div class="page" id="page-relatorios">
+        <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+          <div class="card" style="cursor:pointer" onclick="relatorioVendas()">
+            <h3>&#x1F4CA; Relatório de Vendas</h3>
+            <p class="text-muted mt-1">Vendas por período com totais e ticket médio</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioEstoque()">
+            <h3>&#x1F4E6; Relatório de Estoque</h3>
+            <p class="text-muted mt-1">Posição atual do estoque com valores</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioProdutosMaisVendidos()">
+            <h3>&#x1F3C6; Produtos Mais Vendidos</h3>
+            <p class="text-muted mt-1">Ranking de produtos por quantidade vendida</p>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="relatorioPerdas()">
+            <h3>&#x26A0; Relatório de Perdas</h3>
+            <p class="text-muted mt-1">Perdas por vencimento e avaria</p>
+          </div>
+        </div>
+        <div id="relatorioContent"></div>
+      </div>
+
+      <!-- ============ CONFIGURAÇÕES ============ -->
+      <div class="page" id="page-configuracoes">
+        <div class="card">
+          <h3 style="margin-bottom:20px">Configurações do Sistema</h3>
+          <form id="formConfiguracoes" onsubmit="salvarConfiguracoes(event)">
+            <h4 style="margin-bottom:12px;color:var(--gray-700)">Dados da Empresa</h4>
+            <div class="form-row">
+              <div class="form-group"><label>Razão Social</label><input class="form-control" name="empresa_razao_social"></div>
+              <div class="form-group"><label>Nome Fantasia</label><input class="form-control" name="empresa_nome_fantasia"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>CNPJ</label><input class="form-control" name="empresa_cnpj"></div>
+              <div class="form-group"><label>Inscrição Estadual</label><input class="form-control" name="empresa_ie"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Endereço</label><input class="form-control" name="empresa_endereco"></div>
+              <div class="form-group"><label>Cidade</label><input class="form-control" name="empresa_cidade"></div>
+              <div class="form-group"><label>UF</label><input class="form-control" name="empresa_uf"></div>
+              <div class="form-group"><label>CEP</label><input class="form-control" name="empresa_cep"></div>
+            </div>
+            <div class="form-group"><label>Telefone</label><input class="form-control" name="empresa_telefone" style="max-width:300px"></div>
+
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">NFC-e</h4>
+            <div class="form-row">
+              <div class="form-group"><label>Série</label><input class="form-control" name="nfce_serie"></div>
+              <div class="form-group">
+                <label>Ambiente</label>
+                <select class="form-control" name="nfce_ambiente">
+                  <option value="homologacao">Homologação (Teste)</option>
+                  <option value="producao">Produção</option>
+                </select>
+              </div>
+              <div class="form-group"><label>CSC ID</label><input class="form-control" name="nfce_csc_id"></div>
+              <div class="form-group"><label>CSC Token</label><input class="form-control" name="nfce_csc_token"></div>
+            </div>
+
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">PIX</h4>
+            <div class="form-row">
+              <div class="form-group"><label>Chave PIX</label><input class="form-control" name="pix_chave"></div>
+              <div class="form-group"><label>Nome Recebedor</label><input class="form-control" name="pix_nome"></div>
+              <div class="form-group"><label>Cidade</label><input class="form-control" name="pix_cidade"></div>
+            </div>
+
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">Estoque</h4>
+            <div class="form-group"><label>Dias para alerta de validade</label><input class="form-control" name="estoque_alerta_dias_validade" type="number" style="max-width:200px"></div>
+
+            <button type="submit" class="btn btn-primary btn-lg mt-2">Salvar Configurações</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- ============ USUARIOS ============ -->
+      <div class="page" id="page-usuarios">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Gestao de Usuarios</h3>
+            <button class="btn btn-primary" onclick="modalUsuario()">+ Novo Usuario</button>
+          </div>
+          <table>
+            <thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Status</th><th>Acoes</th></tr></thead>
+            <tbody id="usuariosBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- page-content -->
+  </div><!-- main-content -->
+</div><!-- app-container -->
+
+<!-- MODAL GENÉRICO -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContainer">
+    <div class="modal-header">
+      <h3 id="modalTitle">Modal</h3>
+      <button class="modal-close" onclick="fecharModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+
+<!-- TOASTS -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
