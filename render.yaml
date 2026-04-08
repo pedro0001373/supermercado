@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: supermercado-peres
+    runtime: node
+    buildCommand: npm install
+    startCommand: node src/server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
