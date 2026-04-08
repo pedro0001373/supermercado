@@ -32,7 +32,7 @@ router.get('/:id', (req, res) => {
 
 // Nova venda (PDV)
 router.post('/', (req, res) => {
-  const { itens, pagamentos: pgtos, cliente_cpf, cliente_nome, desconto, acrescimo, observacoes } = req.body;
+  const { itens, pagamentos: pgtos, cliente_cpf, cliente_nome, cliente_id, desconto, acrescimo, observacoes } = req.body;
 
   const caixa = db.prepare(`SELECT * FROM caixas WHERE status = 'aberto'`).get();
   if (!caixa) return res.status(400).json({ error: 'Nenhum caixa aberto. Abra o caixa antes de vender.' });
@@ -55,11 +55,18 @@ router.post('/', (req, res) => {
 
     // Criar venda
     const vendaResult = db.prepare(`
-      INSERT INTO vendas (caixa_id, numero_venda, cliente_cpf, cliente_nome, subtotal, desconto, acrescimo, total, status, observacoes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?)
-    `).run(caixa.id, numero_venda, cliente_cpf || null, cliente_nome || null, subtotal, desconto || 0, acrescimo || 0, total, observacoes || null);
+      INSERT INTO vendas (caixa_id, numero_venda, cliente_cpf, cliente_nome, cliente_id, subtotal, desconto, acrescimo, total, status, observacoes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?)
+    `).run(caixa.id, numero_venda, cliente_cpf || null, cliente_nome || null, cliente_id || null, subtotal, desconto || 0, acrescimo || 0, total, observacoes || null);
 
     const venda_id = vendaResult.lastInsertRowid;
+
+    // Atualizar pontos do cliente fidelidade
+    if (cliente_id) {
+      const pontos = Math.floor(total);
+      db.prepare('UPDATE clientes SET pontos = pontos + ?, total_compras = total_compras + ?, qtd_compras = qtd_compras + 1, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(pontos, total, cliente_id);
+    }
 
     // Inserir itens e baixar estoque
     const stmtItem = db.prepare(`

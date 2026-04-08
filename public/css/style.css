@@ -603,22 +603,60 @@ textarea.form-control {
 .pdv-table table { font-size: 14px; }
 .pdv-table tbody td { padding: 8px 16px; }
 
+.pdv-atalhos {
+  display: flex;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.pdv-atalhos span {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-body);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.pdv-cliente-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #1a2a4a, #1a1d27);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
 .pdv-total {
-  padding: 16px 20px;
+  padding: 12px 20px;
   background: linear-gradient(135deg, #1a1d2e, #111422);
   color: white;
+  border-top: 1px solid var(--border);
+}
+.pdv-total-info {
+  display: flex;
+  gap: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.pdv-total-main {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid var(--border);
 }
-
 .pdv-total .total-label {
   font-size: 18px;
   font-weight: 500;
   color: var(--text-muted);
 }
-
 .pdv-total .total-value {
   font-size: 36px;
   font-weight: 700;
@@ -631,41 +669,32 @@ textarea.form-control {
   gap: 12px;
 }
 
-.pdv-info {
-  background: var(--bg-card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 16px;
-  border: 1px solid var(--border);
-}
-
-.pdv-info h4 {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.pdv-info div { color: var(--text-secondary); }
-.pdv-info strong { color: var(--text-primary); }
-
 .pdv-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  border: 1px solid var(--border);
 }
-
+.pdv-actions hr { grid-column: span 2; }
 .pdv-actions .btn {
-  padding: 16px;
-  font-size: 14px;
+  padding: 14px;
+  font-size: 13px;
   font-weight: 600;
   justify-content: center;
 }
-
 .pdv-pay-btn {
   grid-column: span 2;
   padding: 20px !important;
   font-size: 18px !important;
 }
+
+.pdv-item-desc { color: var(--danger); font-size: 11px; }
+.pdv-item-added { animation: pdvFlash 0.3s ease; }
+@keyframes pdvFlash { 0% { background: rgba(52,211,153,0.3); } 100% { background: transparent; } }
 
 /* ============ ALERTS ============ */
 .alert {

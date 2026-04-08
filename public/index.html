@@ -65,6 +65,9 @@
         <div class="nav-item" data-page="fornecedores" onclick="navigateTo('fornecedores')">
           <span class="icon">&#x1F69A;</span><span>Fornecedores</span>
         </div>
+        <div class="nav-item" data-page="clientes" onclick="navigateTo('clientes')">
+          <span class="icon">&#x2B50;</span><span>Clientes Fidelidade</span>
+        </div>
       </div>
       <div class="nav-section">
         <div class="nav-section-title">Operacional</div>
@@ -159,42 +162,53 @@
         <div id="pdvCaixaFechado" class="card" style="text-align:center;padding:60px">
           <div style="font-size:48px;margin-bottom:16px">&#x1F4B3;</div>
           <h2>Caixa Fechado</h2>
-          <p class="text-muted mt-1">Abra o caixa para iniciar as vendas</p>
+          <p class="text-muted mt-1">Abra o caixa para iniciar as vendas (F8)</p>
           <button class="btn btn-primary btn-lg mt-2" onclick="abrirCaixaModal()">Abrir Caixa</button>
         </div>
         <div id="pdvCaixaAberto" style="display:none">
+          <div class="pdv-atalhos">
+            <span>F1 Buscar</span><span>F2 Pagamento</span><span>F4 Cancela Item</span><span>F6 Desconto</span><span>F7 Cliente</span><span>F8 Caixa</span><span>F9 Sangria</span><span>ESC Cancelar</span>
+          </div>
           <div class="pdv-container">
             <div class="pdv-items">
               <div class="pdv-search">
-                <input type="text" id="pdvBuscaInput" placeholder="Leia o código de barras ou digite o nome do produto..." onkeydown="pdvBuscarProduto(event)" autofocus>
+                <input type="text" id="pdvBuscaInput" placeholder="&#x1F50D; Leia o codigo de barras ou digite o nome do produto... (F1)" onkeydown="pdvBuscarProduto(event)" autofocus>
+              </div>
+              <div class="pdv-cliente-bar" id="pdvClienteBar" style="display:none">
+                <span>&#x1F464; Cliente: <strong id="pdvClienteNome"></strong></span>
+                <span class="text-muted" id="pdvClientePontos"></span>
+                <button class="btn btn-sm btn-outline" onclick="pdvRemoverCliente()" style="margin-left:auto;padding:2px 8px">X</button>
               </div>
               <div class="pdv-table">
                 <table>
                   <thead>
-                    <tr><th style="width:40px">#</th><th>Produto</th><th style="width:80px">Qtd</th><th style="width:100px">Unit.</th><th style="width:100px">Subtotal</th><th style="width:40px"></th></tr>
+                    <tr><th style="width:35px">#</th><th>Produto</th><th style="width:70px">Qtd</th><th style="width:90px">Unit.</th><th style="width:70px">Desc.</th><th style="width:90px">Subtotal</th><th style="width:35px"></th></tr>
                   </thead>
                   <tbody id="pdvItensBody"></tbody>
                 </table>
               </div>
               <div class="pdv-total">
-                <span class="total-label">TOTAL</span>
-                <span class="total-value" id="pdvTotalValor">R$ 0,00</span>
+                <div class="pdv-total-info">
+                  <span>Itens: <strong id="pdvQtdItens">0</strong></span>
+                  <span>Subtotal: <strong id="pdvSubtotal">R$ 0,00</strong></span>
+                  <span>Desc: <strong id="pdvDesconto" class="text-danger">R$ 0,00</strong></span>
+                </div>
+                <div class="pdv-total-main">
+                  <span class="total-label">TOTAL</span>
+                  <span class="total-value" id="pdvTotalValor">R$ 0,00</span>
+                </div>
               </div>
             </div>
             <div class="pdv-sidebar">
-              <div class="pdv-info">
-                <h4>Venda Atual</h4>
-                <div>Itens: <strong id="pdvQtdItens">0</strong></div>
-                <div>Subtotal: <strong id="pdvSubtotal">R$ 0,00</strong></div>
-                <div>Desconto: <strong id="pdvDesconto">R$ 0,00</strong></div>
-              </div>
               <div class="pdv-actions">
                 <button class="btn btn-success pdv-pay-btn" onclick="pdvPagamento()">&#x1F4B5; PAGAMENTO (F2)</button>
-                <button class="btn btn-outline" onclick="pdvDesconto()">% Desconto</button>
+                <button class="btn btn-outline" onclick="pdvDesconto()">% Desconto Geral (F6)</button>
+                <button class="btn btn-outline" onclick="pdvCliente()">&#x1F464; Cliente Fidelidade (F7)</button>
                 <button class="btn btn-outline" onclick="pdvCpf()">CPF na Nota</button>
-                <button class="btn btn-warning" onclick="pdvSangria()">Sangria</button>
+                <hr style="border-color:var(--border);margin:4px 0">
+                <button class="btn btn-warning" onclick="pdvSangria()">Sangria (F9)</button>
                 <button class="btn btn-primary" onclick="pdvSuprimento()">Suprimento</button>
-                <button class="btn btn-danger" onclick="pdvCancelarVenda()">Cancelar Venda</button>
+                <button class="btn btn-danger" onclick="pdvCancelarVenda()">Cancelar Venda (ESC)</button>
                 <button class="btn btn-outline" onclick="fecharCaixaModal()">Fechar Caixa</button>
               </div>
             </div>
@@ -245,6 +259,19 @@
       </div>
 
       <!-- ============ FORNECEDORES ============ -->
+      <div class="page" id="page-clientes">
+        <div class="table-container">
+          <div class="table-header">
+            <h3>Clientes Fidelidade</h3>
+            <button class="btn btn-primary" onclick="modalCliente()">+ Novo Cliente</button>
+          </div>
+          <table>
+            <thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>Pontos</th><th>Total Compras</th><th>Qtd Compras</th><th>Acoes</th></tr></thead>
+            <tbody id="clientesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="page" id="page-fornecedores">
         <div class="table-container">
           <div class="table-header">

@@ -30,6 +30,7 @@ dbReady.then(() => {
   app.use('/api/nfce', require('./routes/nfce'));
   app.use('/api/relatorios', require('./routes/relatorios'));
   app.use('/api/configuracoes', require('./routes/configuracoes'));
+  app.use('/api/clientes', require('./routes/clientes'));
 
   // Middleware de erro para API - retorna JSON em vez de HTML
   app.use('/api', (err, req, res, next) => {

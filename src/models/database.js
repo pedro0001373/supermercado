@@ -425,6 +425,28 @@ class DatabaseWrapper {
       this.db.run('INSERT OR IGNORE INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?)', [chave, valor, descricao]);
     }
 
+    // Tabela de clientes fidelidade
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS clientes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL,
+        cpf TEXT UNIQUE,
+        telefone TEXT,
+        email TEXT,
+        pontos INTEGER DEFAULT 0,
+        total_compras REAL DEFAULT 0,
+        qtd_compras INTEGER DEFAULT 0,
+        ativo INTEGER DEFAULT 1,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_clientes_cpf ON clientes(cpf)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes(nome)');
+
+    // Adicionar cliente_id na tabela vendas se nao existir
+    try { this.db.run('ALTER TABLE vendas ADD COLUMN cliente_id INTEGER'); } catch(e) {}
+
     // Tabela de logs de auditoria
     this.db.run(`
       CREATE TABLE IF NOT EXISTS logs (

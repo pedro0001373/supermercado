@@ -105,8 +105,8 @@ function fazerLogout() {
 // Permissoes por perfil
 var perfilPermissoes = {
   operador: ['pdv'],
-  gerente: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios'],
-  admin: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios', 'configuracoes', 'usuarios', 'logs', 'backups']
+  gerente: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'clientes', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios'],
+  admin: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'clientes', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios', 'configuracoes', 'usuarios', 'logs', 'backups']
 };
 
 function temPermissao(page) {
@@ -190,7 +190,7 @@ function navigateTo(page) {
 
   var titles = {
     dashboard: 'Dashboard', pdv: 'PDV - Frente de Caixa', produtos: 'Produtos',
-    categorias: 'Categorias', fornecedores: 'Fornecedores', estoque: 'Controle de Estoque',
+    categorias: 'Categorias', fornecedores: 'Fornecedores', clientes: 'Clientes Fidelidade', estoque: 'Controle de Estoque',
     validade: 'Controle de Validade', 'notas-entrada': 'Notas de Entrada',
     nfce: 'NFC-e', vendas: 'Vendas', relatorios: 'Relatorios', configuracoes: 'Configuracoes',
     usuarios: 'Usuarios', logs: 'Logs / Auditoria', backups: 'Backups'
@@ -208,6 +208,7 @@ function navigateTo(page) {
     case 'produtos': carregarProdutos(); break;
     case 'categorias': carregarCategorias(); break;
     case 'fornecedores': carregarFornecedores(); break;
+    case 'clientes': carregarClientes(); break;
     case 'estoque': estoqueTab('alertas'); break;
     case 'validade': validadeTab('alertas'); break;
     case 'notas-entrada': carregarNotasEntrada(); break;
@@ -604,18 +605,48 @@ async function inutilizarNfce() {
 async function imprimirCupom(id) {
   try {
     var data = await api('/api/nfce/' + id + '/cupom');
-    var w = window.open('', '_blank', 'width=350,height=600');
-    w.document.write('<html><head><style>body{font-family:monospace;font-size:12px;width:280px;margin:0 auto;padding:10px;background:#fff;color:#000}.center{text-align:center}.line{border-top:1px dashed #000;margin:5px 0}table{width:100%;border-collapse:collapse}td{padding:2px 0;font-size:11px}.right{text-align:right}.bold{font-weight:bold}</style></head><body>' +
-      '<div class="center"><strong>' + (data.empresa.empresa_nome_fantasia||'SUPERMERCADO') + '</strong></div>' +
-      '<div class="center">CNPJ: ' + (data.empresa.empresa_cnpj||'') + '</div><div class="line"></div>' +
-      '<div class="center bold">CUPOM FISCAL - NFC-e</div><div class="line"></div>' +
-      '<table>' + data.itens.map(function(item, i) { return '<tr><td colspan="4">' + (i+1) + '. ' + item.nome_produto + '</td></tr><tr><td>' + item.quantidade + 'x</td><td class="right">' + formatMoney(item.preco_unitario) + '</td><td></td><td class="right bold">' + formatMoney(item.subtotal) + '</td></tr>'; }).join('') + '</table>' +
-      '<div class="line"></div><div class="right bold" style="font-size:14px">TOTAL: ' + formatMoney(data.venda.total) + '</div><div class="line"></div>' +
-      data.pagamentos.map(function(p) { return '<div>' + p.forma_pagamento + ': ' + formatMoney(p.valor) + '</div>'; }).join('') +
-      '<div class="line"></div><div class="center">NFC-e n ' + data.nfce.numero + '</div>' +
-      '<div class="center" style="font-size:10px">' + (data.nfce.ambiente==='homologacao'?'HOMOLOGACAO - SEM VALOR FISCAL':'') + '</div>' +
-      '<script>window.print();<\/script></body></html>');
-  } catch(e) {}
+    var nomesPag = { dinheiro: 'Dinheiro', cartao_debito: 'Cart. Debito', cartao_credito: 'Cart. Credito', pix: 'PIX', nfc: 'NFC' };
+    var troco = data.pagamentos.reduce(function(a,p){return a + (p.troco||0);},0);
+    var totalPago = data.pagamentos.reduce(function(a,p){return a + p.valor;},0);
+    var w = window.open('', '_blank', 'width=380,height=700');
+    w.document.write('<html><head><style>' +
+      'body{font-family:"Courier New",monospace;font-size:12px;width:300px;margin:0 auto;padding:10px;background:#fff;color:#000}' +
+      '.center{text-align:center}.right{text-align:right}.bold{font-weight:bold}' +
+      '.line{border-top:1px dashed #000;margin:6px 0}.dline{border-top:2px solid #000;margin:6px 0}' +
+      'table{width:100%;border-collapse:collapse}td{padding:1px 0;font-size:11px}' +
+      '.total{font-size:16px;font-weight:bold;text-align:right;padding:8px 0}' +
+      '.row{display:flex;justify-content:space-between;padding:1px 0}' +
+      '</style></head><body>' +
+      '<div class="center"><strong style="font-size:14px">' + (data.empresa.empresa_nome_fantasia||'SUPERMERCADO PERES') + '</strong></div>' +
+      '<div class="center" style="font-size:10px">' + (data.empresa.empresa_razao_social||'') + '</div>' +
+      '<div class="center" style="font-size:10px">CNPJ: ' + (data.empresa.empresa_cnpj||'') + '</div>' +
+      (data.empresa.empresa_endereco ? '<div class="center" style="font-size:10px">' + data.empresa.empresa_endereco + '</div>' : '') +
+      '<div class="dline"></div>' +
+      '<div class="center bold">CUPOM FISCAL ELETRONICO - NFC-e</div>' +
+      '<div class="center" style="font-size:10px">NFC-e n. ' + data.nfce.numero + ' | Serie ' + (data.nfce.serie||'1') + '</div>' +
+      '<div class="center" style="font-size:10px">' + formatDateTime(data.nfce.data_emissao) + '</div>' +
+      '<div class="line"></div>' +
+      '<div class="bold" style="font-size:10px">COD | DESCRICAO | QTD | VL UN | VL TOTAL</div>' +
+      '<div class="line"></div>' +
+      data.itens.map(function(item, i) {
+        return '<div style="font-size:11px">' + (i+1).toString().padStart(3,'0') + ' ' + item.nome_produto + '</div>' +
+          '<div class="row" style="font-size:11px;padding-left:20px"><span>' + item.quantidade + ' x ' + formatMoney(item.preco_unitario) + (item.desconto > 0 ? ' desc:-' + formatMoney(item.desconto) : '') + '</span><span class="bold">' + formatMoney(item.subtotal) + '</span></div>';
+      }).join('') +
+      '<div class="dline"></div>' +
+      (data.venda.desconto > 0 ? '<div class="row"><span>Subtotal:</span><span>' + formatMoney(data.venda.subtotal) + '</span></div><div class="row"><span>Desconto:</span><span>-' + formatMoney(data.venda.desconto) + '</span></div>' : '') +
+      '<div class="total">TOTAL: ' + formatMoney(data.venda.total) + '</div>' +
+      '<div class="line"></div>' +
+      '<div class="bold" style="font-size:11px">FORMA DE PAGAMENTO</div>' +
+      data.pagamentos.map(function(p) { return '<div class="row" style="font-size:11px"><span>' + (nomesPag[p.forma_pagamento]||p.forma_pagamento) + '</span><span>' + formatMoney(p.valor) + '</span></div>'; }).join('') +
+      (troco > 0 ? '<div class="row bold" style="font-size:12px"><span>TROCO:</span><span>' + formatMoney(troco) + '</span></div>' : '') +
+      '<div class="line"></div>' +
+      (data.venda.cliente_cpf ? '<div style="font-size:10px">CPF do consumidor: ' + data.venda.cliente_cpf + '</div>' : '<div style="font-size:10px">CONSUMIDOR NAO IDENTIFICADO</div>') +
+      '<div class="line"></div>' +
+      '<div class="center" style="font-size:10px">' + (data.nfce.ambiente==='homologacao'?'** HOMOLOGACAO - SEM VALOR FISCAL **':'DOCUMENTO FISCAL VALIDO') + '</div>' +
+      '<div class="center" style="font-size:10px;margin-top:8px">Obrigado pela preferencia!</div>' +
+      '<div class="center" style="font-size:10px">' + (data.empresa.empresa_nome_fantasia||'SUPERMERCADO PERES') + '</div>' +
+      '<script>setTimeout(function(){window.print();},300);<\/script></body></html>');
+  } catch(e) { console.error(e); }
 }
 
 // ============ VENDAS ============
@@ -648,7 +679,59 @@ async function cancelarVenda(id) {
   try { await api('/api/vendas/' + id + '/cancelar', { method: 'POST' }); toast('Venda cancelada'); carregarVendas(); } catch(e) {}
 }
 
+// ============ CLIENTES FIDELIDADE ============
+async function carregarClientes() {
+  try {
+    var data = await api('/api/clientes');
+    document.getElementById('clientesBody').innerHTML = data.length
+      ? data.map(function(c) {
+        return '<tr><td><strong>' + c.nome + '</strong></td><td class="font-mono">' + (c.cpf||'-') + '</td><td>' + (c.telefone||'-') + '</td><td><strong>' + (c.pontos||0) + '</strong></td><td>' + formatMoney(c.total_compras||0) + '</td><td>' + (c.qtd_compras||0) + '</td><td><button class="btn btn-sm btn-outline" onclick="modalCliente(' + c.id + ')">Editar</button> <button class="btn btn-sm btn-primary" onclick="verCliente(' + c.id + ')">Historico</button></td></tr>';
+      }).join('')
+      : '<tr><td colspan="7" class="text-center text-muted" style="padding:30px">Nenhum cliente cadastrado</td></tr>';
+  } catch(e) { console.error(e); }
+}
+
+function modalCliente(id) {
+  if (id) {
+    api('/api/clientes/' + id).then(function(c) {
+      abrirModal('Editar Cliente',
+        '<form id="formCliente"><div class="form-group"><label>Nome *</label><input class="form-control" name="nome" value="' + (c.nome||'') + '" required></div><div class="form-row"><div class="form-group"><label>CPF</label><input class="form-control" name="cpf" value="' + (c.cpf||'') + '"></div><div class="form-group"><label>Telefone</label><input class="form-control" name="telefone" value="' + (c.telefone||'') + '"></div></div><div class="form-group"><label>Email</label><input class="form-control" name="email" value="' + (c.email||'') + '"></div></form>',
+        '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="salvarCliente(' + id + ')">Salvar</button>');
+    });
+  } else {
+    abrirModal('Novo Cliente',
+      '<form id="formCliente"><div class="form-group"><label>Nome *</label><input class="form-control" name="nome" required></div><div class="form-row"><div class="form-group"><label>CPF</label><input class="form-control" name="cpf"></div><div class="form-group"><label>Telefone</label><input class="form-control" name="telefone"></div></div><div class="form-group"><label>Email</label><input class="form-control" name="email"></div></form>',
+      '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="salvarCliente(null)">Salvar</button>');
+  }
+}
+
+async function salvarCliente(id) {
+  try {
+    var d = Object.fromEntries(new FormData(document.getElementById('formCliente')));
+    if (id) await api('/api/clientes/' + id, { method: 'PUT', body: d });
+    else await api('/api/clientes', { method: 'POST', body: d });
+    toast(id ? 'Cliente atualizado!' : 'Cliente cadastrado!');
+    fecharModal(); carregarClientes();
+  } catch(e) {}
+}
+
+async function verCliente(id) {
+  try {
+    var c = await api('/api/clientes/' + id);
+    var html = '<div class="flex-between mb-2"><div><strong>Pontos:</strong> ' + c.pontos + '</div><div><strong>Total:</strong> ' + formatMoney(c.total_compras) + '</div><div><strong>Compras:</strong> ' + c.qtd_compras + '</div></div>';
+    if (c.compras && c.compras.length) {
+      html += '<h4 style="margin:12px 0 8px">Historico de Compras</h4><table><thead><tr><th>#</th><th>Data</th><th>Total</th><th>Status</th></tr></thead><tbody>' + c.compras.map(function(v) {
+        return '<tr><td>#' + v.numero_venda + '</td><td>' + formatDateTime(v.criado_em) + '</td><td><strong>' + formatMoney(v.total) + '</strong></td><td><span class="status ' + (v.status==='finalizada'?'status-success':'status-danger') + '">' + v.status + '</span></td></tr>';
+      }).join('') + '</tbody></table>';
+    } else { html += '<div class="empty-state"><p>Nenhuma compra registrada</p></div>'; }
+    abrirModal('Cliente: ' + c.nome, html, '<button class="btn btn-outline" onclick="fecharModal()">Fechar</button>');
+  } catch(e) {}
+}
+
 // ============ PDV ============
+var pdvClienteId = null;
+var pdvClienteNomeVal = '';
+
 async function verificarCaixa() {
   try {
     var caixa = await api('/api/caixa/aberto');
@@ -657,7 +740,8 @@ async function verificarCaixa() {
       document.getElementById('pdvCaixaAberto').style.display = '';
       document.getElementById('caixaStatus').className = 'status status-success';
       document.getElementById('caixaStatus').textContent = 'Caixa #' + caixa.numero_caixa + ' Aberto';
-      pdvItens = []; pdvDescontoVal = 0; pdvCpfVal = '';
+      pdvItens = []; pdvDescontoVal = 0; pdvCpfVal = ''; pdvClienteId = null; pdvClienteNomeVal = '';
+      document.getElementById('pdvClienteBar').style.display = 'none';
       atualizarPdv();
       setTimeout(function() { document.getElementById('pdvBuscaInput').focus(); }, 200);
     } else {
@@ -722,11 +806,30 @@ async function pdvAdicionarProduto(id) {
   try { var produto = await api('/api/produtos/' + id); pdvAddItem(produto); document.getElementById('pdvBuscaInput').focus(); } catch(e) {}
 }
 
+// Som de bip ao adicionar produto
+function pdvBeep() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 1200; osc.type = 'sine';
+    gain.gain.value = 0.1;
+    osc.start(); osc.stop(ctx.currentTime + 0.08);
+  } catch(e) {}
+}
+
 function pdvAddItem(produto) {
   var existente = pdvItens.find(function(i) { return i.produto_id === produto.id; });
-  if (existente) { existente.quantidade += 1; existente.subtotal = existente.quantidade * existente.preco_unitario; }
+  if (existente) { existente.quantidade += 1; existente.subtotal = existente.quantidade * existente.preco_unitario - existente.desconto; }
   else { pdvItens.push({ produto_id: produto.id, codigo_barras: produto.codigo_barras, nome_produto: produto.nome, quantidade: 1, preco_unitario: produto.preco_venda, desconto: 0, subtotal: produto.preco_venda }); }
+  pdvBeep();
   atualizarPdv();
+  // Flash na ultima linha
+  setTimeout(function() {
+    var rows = document.querySelectorAll('#pdvItensBody tr');
+    if (rows.length) { var lastRow = rows[rows.length - 1]; lastRow.classList.add('pdv-item-added'); }
+  }, 50);
 }
 
 function pdvAlterarQtd(index, qtd) {
@@ -734,58 +837,158 @@ function pdvAlterarQtd(index, qtd) {
   else { pdvItens[index].quantidade = qtd; pdvItens[index].subtotal = qtd * pdvItens[index].preco_unitario - pdvItens[index].desconto; }
   atualizarPdv();
 }
-function pdvRemoverItem(index) { pdvItens.splice(index, 1); atualizarPdv(); }
+function pdvRemoverItem(index) { pdvItens.splice(index, 1); atualizarPdv(); document.getElementById('pdvBuscaInput').focus(); }
+
+function pdvDescontoItem(index) {
+  var item = pdvItens[index];
+  var v = prompt('Desconto no item "' + item.nome_produto + '" (valor em R$):', item.desconto || 0);
+  if (v !== null) {
+    item.desconto = Number(v) || 0;
+    item.subtotal = item.quantidade * item.preco_unitario - item.desconto;
+    atualizarPdv();
+  }
+}
 
 function atualizarPdv() {
   var subtotal = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0);
+  var totalDescontoItens = pdvItens.reduce(function(acc, i) { return acc + (i.desconto || 0); }, 0);
   var total = subtotal - pdvDescontoVal;
+  if (total < 0) total = 0;
   document.getElementById('pdvItensBody').innerHTML = pdvItens.map(function(item, i) {
-    return '<tr><td>' + (i+1) + '</td><td>' + item.nome_produto + '</td><td><input type="number" class="form-control" value="' + item.quantidade + '" min="0.001" step="1" style="width:70px" onchange="pdvAlterarQtd(' + i + ',Number(this.value))"></td><td>' + formatMoney(item.preco_unitario) + '</td><td><strong>' + formatMoney(item.subtotal) + '</strong></td><td><button class="btn btn-sm btn-danger" onclick="pdvRemoverItem(' + i + ')" style="padding:2px 6px">X</button></td></tr>';
+    var descHtml = item.desconto > 0 ? '<br><span class="pdv-item-desc">-' + formatMoney(item.desconto) + '</span>' : '';
+    return '<tr><td>' + (i+1) + '</td><td>' + item.nome_produto + descHtml + '</td><td><input type="number" class="form-control" value="' + item.quantidade + '" min="0.001" step="1" style="width:65px" onchange="pdvAlterarQtd(' + i + ',Number(this.value))"></td><td>' + formatMoney(item.preco_unitario) + '</td><td><span style="cursor:pointer" onclick="pdvDescontoItem(' + i + ')" title="Clique para desconto">' + formatMoney(item.desconto||0) + '</span></td><td><strong>' + formatMoney(item.subtotal) + '</strong></td><td><button class="btn btn-sm btn-danger" onclick="pdvRemoverItem(' + i + ')" style="padding:2px 6px">X</button></td></tr>';
   }).join('');
   document.getElementById('pdvTotalValor').textContent = formatMoney(total);
   document.getElementById('pdvQtdItens').textContent = pdvItens.length;
-  document.getElementById('pdvSubtotal').textContent = formatMoney(subtotal);
-  document.getElementById('pdvDesconto').textContent = formatMoney(pdvDescontoVal);
+  document.getElementById('pdvSubtotal').textContent = formatMoney(subtotal + totalDescontoItens);
+  document.getElementById('pdvDesconto').textContent = formatMoney(pdvDescontoVal + totalDescontoItens);
 }
 
-function pdvDesconto() { var v = prompt('Valor do desconto:'); if (v !== null) { pdvDescontoVal = Number(v) || 0; atualizarPdv(); } }
+function pdvDesconto() {
+  abrirModal('Desconto na Venda',
+    '<div class="form-group"><label>Tipo</label><select class="form-control" id="descontoTipo" onchange="calcDescontoPreview()"><option value="valor">Valor (R$)</option><option value="porcento">Porcentagem (%)</option></select></div><div class="form-group"><label>Valor</label><input class="form-control" id="descontoValorInput" type="number" step="0.01" value="' + pdvDescontoVal + '" oninput="calcDescontoPreview()"></div><div id="descontoPreview" class="text-muted" style="margin-top:8px"></div>',
+    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="aplicarDesconto()">Aplicar</button>');
+  calcDescontoPreview();
+}
+function calcDescontoPreview() {
+  var tipo = document.getElementById('descontoTipo').value;
+  var val = Number(document.getElementById('descontoValorInput').value) || 0;
+  var subtotal = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0);
+  var desc = tipo === 'porcento' ? (subtotal * val / 100) : val;
+  document.getElementById('descontoPreview').textContent = 'Desconto: ' + formatMoney(desc) + ' | Total: ' + formatMoney(subtotal - desc);
+}
+function aplicarDesconto() {
+  var tipo = document.getElementById('descontoTipo').value;
+  var val = Number(document.getElementById('descontoValorInput').value) || 0;
+  var subtotal = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0);
+  pdvDescontoVal = tipo === 'porcento' ? (subtotal * val / 100) : val;
+  atualizarPdv(); fecharModal(); document.getElementById('pdvBuscaInput').focus();
+}
+
 function pdvCpf() { var cpf = prompt('CPF do cliente:'); if (cpf !== null) pdvCpfVal = cpf; }
-function pdvCancelarVenda() { if (!pdvItens.length) return; if (!confirm('Cancelar a venda atual?')) return; pdvItens = []; pdvDescontoVal = 0; pdvCpfVal = ''; atualizarPdv(); toast('Venda cancelada'); }
+
+function pdvCancelarVenda() {
+  if (!pdvItens.length) return;
+  if (!confirm('Cancelar a venda atual?')) return;
+  pdvItens = []; pdvDescontoVal = 0; pdvCpfVal = ''; pdvClienteId = null; pdvClienteNomeVal = '';
+  document.getElementById('pdvClienteBar').style.display = 'none';
+  atualizarPdv(); toast('Venda cancelada');
+  document.getElementById('pdvBuscaInput').focus();
+}
+
+// Cliente fidelidade no PDV
+function pdvCliente() {
+  abrirModal('Cliente Fidelidade',
+    '<div class="form-group"><label>Buscar por nome ou CPF</label><input class="form-control" id="pdvClienteBusca" placeholder="Digite para buscar..." oninput="buscarClientePdv()"></div><div id="pdvClienteResultados"></div><hr style="border-color:var(--border)"><button class="btn btn-outline btn-block" onclick="fecharModal();modalCliente()">+ Cadastrar Novo Cliente</button>',
+    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button>');
+  setTimeout(function() { document.getElementById('pdvClienteBusca').focus(); }, 200);
+}
+async function buscarClientePdv() {
+  var termo = document.getElementById('pdvClienteBusca').value.trim();
+  if (termo.length < 2) { document.getElementById('pdvClienteResultados').innerHTML = ''; return; }
+  try {
+    var data = await api('/api/clientes/buscar?termo=' + encodeURIComponent(termo));
+    document.getElementById('pdvClienteResultados').innerHTML = data.length
+      ? data.map(function(c) { return '<div style="display:flex;align-items:center;padding:10px;border-bottom:1px solid var(--border);cursor:pointer" onclick="selecionarClientePdv(' + c.id + ',\'' + c.nome.replace(/'/g,"\\'") + '\',' + (c.pontos||0) + ')"><div style="flex:1"><strong>' + c.nome + '</strong><br><span class="text-muted">' + (c.cpf||'Sem CPF') + '</span></div><div style="text-align:right"><strong>' + (c.pontos||0) + ' pts</strong><br><span class="text-muted">' + c.qtd_compras + ' compras</span></div></div>'; }).join('')
+      : '<div class="text-muted" style="padding:10px">Nenhum cliente encontrado</div>';
+  } catch(e) {}
+}
+function selecionarClientePdv(id, nome, pontos) {
+  pdvClienteId = id; pdvClienteNomeVal = nome;
+  document.getElementById('pdvClienteBar').style.display = 'flex';
+  document.getElementById('pdvClienteNome').textContent = nome;
+  document.getElementById('pdvClientePontos').textContent = pontos + ' pontos';
+  fecharModal(); document.getElementById('pdvBuscaInput').focus();
+  toast('Cliente: ' + nome);
+}
+function pdvRemoverCliente() {
+  pdvClienteId = null; pdvClienteNomeVal = '';
+  document.getElementById('pdvClienteBar').style.display = 'none';
+  document.getElementById('pdvBuscaInput').focus();
+}
 
 function pdvPagamento() {
   if (!pdvItens.length) return toast('Adicione itens', 'warning');
   var total = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0) - pdvDescontoVal;
+  if (total < 0) total = 0;
   pagFormaCount = 1;
+  var clienteInfo = pdvClienteId ? '<div style="margin-bottom:12px;padding:8px;background:var(--primary-light);border-radius:var(--radius);font-size:12px">Cliente: <strong>' + pdvClienteNomeVal + '</strong></div>' : '';
   abrirModal('Pagamento',
-    '<div style="text-align:center;margin-bottom:20px"><div class="text-muted">TOTAL A PAGAR</div><div style="font-size:36px;font-weight:700;color:var(--success)">' + formatMoney(total) + '</div></div>' +
-    '<div id="pagamentoFormas"><div class="form-row"><div class="form-group"><label>Forma</label><select class="form-control" name="forma_0" onchange="calcTroco()"><option value="dinheiro">Dinheiro</option><option value="cartao_debito">Cartao Debito</option><option value="cartao_credito">Cartao Credito</option><option value="pix">PIX</option><option value="nfc">NFC (Aproximacao)</option></select></div><div class="form-group"><label>Valor</label><input class="form-control" name="valor_0" type="number" step="0.01" value="' + total.toFixed(2) + '" oninput="calcTroco()"></div></div></div>' +
-    '<div id="trocoInfo" style="display:none" class="alert alert-success mt-1"></div>' +
-    '<button class="btn btn-sm btn-outline mt-1" onclick="addFormaPagamento()">+ Outra forma</button>',
-    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-success btn-lg" onclick="finalizarVenda()">Finalizar Venda</button>');
+    clienteInfo +
+    '<div style="text-align:center;margin-bottom:20px"><div class="text-muted">TOTAL A PAGAR</div><div style="font-size:42px;font-weight:700;color:var(--success)">' + formatMoney(total) + '</div></div>' +
+    '<div id="pagamentoFormas"><div class="form-row"><div class="form-group"><label>Forma</label><select class="form-control" name="forma_0" onchange="calcTroco()"><option value="dinheiro">Dinheiro</option><option value="cartao_debito">Cartao Debito</option><option value="cartao_credito">Cartao Credito</option><option value="pix">PIX</option><option value="nfc">NFC (Aproximacao)</option></select></div><div class="form-group"><label>Valor Recebido</label><input class="form-control" name="valor_0" type="number" step="0.01" value="' + total.toFixed(2) + '" oninput="calcTroco()" id="pagValor0"></div></div></div>' +
+    '<div id="trocoContainer" style="display:none;text-align:center;margin:16px 0;padding:16px;background:linear-gradient(135deg,#0a3d2a,#1a2a1a);border-radius:var(--radius);border:2px solid var(--success)"><div class="text-muted" style="font-size:12px">TROCO</div><div id="trocoValor" style="font-size:36px;font-weight:700;color:var(--success)">R$ 0,00</div></div>' +
+    '<div id="trocoFalta" style="display:none;text-align:center;margin:8px 0;padding:8px;background:rgba(239,68,68,0.1);border-radius:var(--radius);color:var(--danger);font-weight:600"></div>' +
+    '<button class="btn btn-sm btn-outline mt-1" onclick="addFormaPagamento()">+ Outra forma de pagamento</button>',
+    '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-success btn-lg" id="btnFinalizar" onclick="finalizarVenda()">Finalizar Venda</button>');
   calcTroco();
+  setTimeout(function() { var el = document.getElementById('pagValor0'); if (el) { el.select(); el.focus(); } }, 200);
 }
 
 function addFormaPagamento() {
   var idx = pagFormaCount++;
+  var total = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0) - pdvDescontoVal;
+  var jaPago = 0;
+  document.querySelectorAll('#pagamentoFormas .form-row').forEach(function(row) {
+    var inp = row.querySelector('input[type="number"]'); if (inp) jaPago += Number(inp.value) || 0;
+  });
+  var restante = Math.max(0, total - jaPago);
   var div = document.createElement('div'); div.className = 'form-row';
-  div.innerHTML = '<div class="form-group"><label>Forma</label><select class="form-control" name="forma_' + idx + '" onchange="calcTroco()"><option value="dinheiro">Dinheiro</option><option value="cartao_debito">Cartao Debito</option><option value="cartao_credito">Cartao Credito</option><option value="pix">PIX</option><option value="nfc">NFC</option></select></div><div class="form-group"><label>Valor</label><input class="form-control" name="valor_' + idx + '" type="number" step="0.01" value="0" oninput="calcTroco()"></div>';
+  div.innerHTML = '<div class="form-group"><label>Forma</label><select class="form-control" name="forma_' + idx + '" onchange="calcTroco()"><option value="dinheiro">Dinheiro</option><option value="cartao_debito">Cartao Debito</option><option value="cartao_credito">Cartao Credito</option><option value="pix">PIX</option><option value="nfc">NFC</option></select></div><div class="form-group"><label>Valor</label><input class="form-control" name="valor_' + idx + '" type="number" step="0.01" value="' + restante.toFixed(2) + '" oninput="calcTroco()"></div>';
   document.getElementById('pagamentoFormas').appendChild(div);
+  calcTroco();
 }
 
 function calcTroco() {
   var total = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0) - pdvDescontoVal;
+  if (total < 0) total = 0;
   var totalPago = 0; var temDinheiro = false;
   document.querySelectorAll('#pagamentoFormas .form-row').forEach(function(row) {
     var sel = row.querySelector('select'); var inp = row.querySelector('input[type="number"]');
     if (sel && inp) { totalPago += Number(inp.value) || 0; if (sel.value === 'dinheiro') temDinheiro = true; }
   });
   var troco = totalPago - total;
-  var el = document.getElementById('trocoInfo');
-  if (troco > 0 && temDinheiro) { el.style.display = ''; el.textContent = 'Troco: ' + formatMoney(troco); } else { el.style.display = 'none'; }
+  var elTroco = document.getElementById('trocoContainer');
+  var elFalta = document.getElementById('trocoFalta');
+  var elBtn = document.getElementById('btnFinalizar');
+  if (troco >= 0) {
+    elFalta.style.display = 'none';
+    if (troco > 0 && temDinheiro) {
+      elTroco.style.display = '';
+      document.getElementById('trocoValor').textContent = formatMoney(troco);
+    } else { elTroco.style.display = 'none'; }
+    elBtn.disabled = false;
+  } else {
+    elTroco.style.display = 'none';
+    elFalta.style.display = '';
+    elFalta.textContent = 'Falta: ' + formatMoney(Math.abs(troco));
+    elBtn.disabled = true;
+  }
 }
 
 async function finalizarVenda() {
   var total = pdvItens.reduce(function(acc, i) { return acc + i.subtotal; }, 0) - pdvDescontoVal;
+  if (total < 0) total = 0;
   var pagamentos = [];
   document.querySelectorAll('#pagamentoFormas .form-row').forEach(function(row) {
     var sel = row.querySelector('select'); var inp = row.querySelector('input[type="number"]');
@@ -797,14 +1000,16 @@ async function finalizarVenda() {
   var totalPago = pagamentos.reduce(function(acc, p) { return acc + p.valor; }, 0);
   if (totalPago < total) return toast('Valor insuficiente', 'error');
   try {
-    var result = await api('/api/vendas', { method: 'POST', body: { itens: pdvItens, pagamentos: pagamentos, cliente_cpf: pdvCpfVal || null, desconto: pdvDescontoVal } });
+    var result = await api('/api/vendas', { method: 'POST', body: { itens: pdvItens, pagamentos: pagamentos, cliente_cpf: pdvCpfVal || null, cliente_id: pdvClienteId || null, desconto: pdvDescontoVal } });
     try {
       var nfce = await api('/api/nfce/emitir', { method: 'POST', body: { venda_id: result.venda_id } });
       toast('Venda #' + result.numero_venda + ' finalizada! NFC-e n' + nfce.numero);
       fecharModal();
-      if (confirm('Imprimir cupom?')) imprimirCupom(nfce.id);
+      imprimirCupom(nfce.id);
     } catch(e2) { toast('Venda #' + result.numero_venda + ' finalizada!', 'warning'); fecharModal(); }
-    pdvItens = []; pdvDescontoVal = 0; pdvCpfVal = ''; pagFormaCount = 1; atualizarPdv();
+    pdvItens = []; pdvDescontoVal = 0; pdvCpfVal = ''; pdvClienteId = null; pdvClienteNomeVal = ''; pagFormaCount = 1;
+    document.getElementById('pdvClienteBar').style.display = 'none';
+    atualizarPdv();
     document.getElementById('pdvBuscaInput').focus();
   } catch(e) {}
 }
@@ -992,8 +1197,31 @@ async function fazerBackup() {
 
 // ============ ATALHOS ============
 document.addEventListener('keydown', function(e) {
-  if (currentPage === 'pdv' && e.key === 'F2') { e.preventDefault(); pdvPagamento(); }
-  if (e.key === 'Escape') fecharModal();
+  // Atalhos globais
+  if (e.key === 'Escape') {
+    var modal = document.getElementById('modalOverlay');
+    if (modal && modal.classList.contains('show')) { fecharModal(); return; }
+    if (currentPage === 'pdv') { pdvCancelarVenda(); return; }
+  }
+
+  // Atalhos do PDV
+  if (currentPage === 'pdv') {
+    if (e.key === 'F1') { e.preventDefault(); document.getElementById('pdvBuscaInput').focus(); document.getElementById('pdvBuscaInput').select(); }
+    if (e.key === 'F2') { e.preventDefault(); pdvPagamento(); }
+    if (e.key === 'F4') {
+      e.preventDefault();
+      if (pdvItens.length) pdvRemoverItem(pdvItens.length - 1);
+    }
+    if (e.key === 'F6') { e.preventDefault(); pdvDesconto(); }
+    if (e.key === 'F7') { e.preventDefault(); pdvCliente(); }
+    if (e.key === 'F8') {
+      e.preventDefault();
+      var caixaAberto = document.getElementById('pdvCaixaAberto').style.display !== 'none';
+      if (caixaAberto) fecharCaixaModal();
+      else abrirCaixaModal();
+    }
+    if (e.key === 'F9') { e.preventDefault(); pdvSangria(); }
+  }
 });
 
 // ============ INICIALIZACAO ============
