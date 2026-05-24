@@ -1,5 +1,5 @@
 /**
- * SUPERMERCADO PERES - Launcher Desktop
+ * SISTEMA DE GESTAO COMERCIAL - Launcher Desktop
  * Inicia o servidor e abre automaticamente no navegador
  * Outros computadores na rede acessam pelo IP
  */
@@ -30,7 +30,7 @@ function getLocalIPs() {
 
 console.log('');
 console.log('  =============================================');
-console.log('  |   SUPERMERCADO PERES - Sistema de Gestao  |');
+console.log('  |   SISTEMA DE GESTAO COMERCIAL             |');
 console.log('  =============================================');
 console.log('');
 console.log('  Iniciando sistema...');

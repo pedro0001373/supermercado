@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models/db');
+const v = require('../middleware/validators');
 
 // Listar todos os produtos
 router.get('/', (req, res) => {
@@ -47,60 +48,62 @@ router.get('/:id', (req, res) => {
 });
 
 // Criar produto
-router.post('/', (req, res) => {
-  const {
-    codigo_barras, nome, descricao, categoria_id, unidade, preco_custo, preco_venda,
-    margem_lucro, estoque_atual, estoque_minimo, ncm, cst, cfop,
-    icms_aliquota, pis_aliquota, cofins_aliquota, peso_liquido, usa_balanca
-  } = req.body;
-
-  if (!nome || preco_venda === undefined) {
-    return res.status(400).json({ error: 'Nome e preço de venda são obrigatórios' });
-  }
-
-  const stmt = db.prepare(`
-    INSERT INTO produtos (codigo_barras, nome, descricao, categoria_id, unidade, preco_custo, preco_venda,
-      margem_lucro, estoque_atual, estoque_minimo, ncm, cst, cfop,
-      icms_aliquota, pis_aliquota, cofins_aliquota, peso_liquido, usa_balanca)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
+router.post('/', (req, res, next) => {
   try {
-    const result = stmt.run(
-      codigo_barras || null, nome, descricao || null, categoria_id || null,
-      unidade || 'UN', preco_custo || 0, preco_venda,
-      margem_lucro || 0, estoque_atual || 0, estoque_minimo || 0,
-      ncm || null, cst || null, cfop || null,
-      icms_aliquota || 0, pis_aliquota || 0, cofins_aliquota || 0,
-      peso_liquido || 0, usa_balanca || 0
+    v.req(req.body, ['nome', 'preco_venda']);
+    v.strLen(req.body.nome, 'nome', 2, 200);
+    v.strLen(req.body.codigo_barras, 'codigo_barras', null, 60);
+    const precoVenda = v.num(req.body.preco_venda, 'preco_venda', { obrigatorio: true, min: 0 });
+    const precoCusto = v.num(req.body.preco_custo, 'preco_custo', { min: 0 }) || 0;
+    const margem = v.num(req.body.margem_lucro, 'margem_lucro', { min: 0 }) || 0;
+    const estoqueAtual = v.num(req.body.estoque_atual, 'estoque_atual', { min: 0 }) || 0;
+    const estoqueMin = v.num(req.body.estoque_minimo, 'estoque_minimo', { min: 0 }) || 0;
+    const pesoLiq = v.num(req.body.peso_liquido, 'peso_liquido', { min: 0 }) || 0;
+
+    const b = req.body;
+    const result = db.prepare(`
+      INSERT INTO produtos (codigo_barras, nome, descricao, categoria_id, unidade, preco_custo, preco_venda,
+        margem_lucro, estoque_atual, estoque_minimo, ncm, cst, cfop,
+        icms_aliquota, pis_aliquota, cofins_aliquota, peso_liquido, usa_balanca)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      b.codigo_barras || null, b.nome.trim(), b.descricao || null, b.categoria_id || null,
+      b.unidade || 'UN', precoCusto, precoVenda,
+      margem, estoqueAtual, estoqueMin,
+      b.ncm || null, b.cst || null, b.cfop || null,
+      Number(b.icms_aliquota) || 0, Number(b.pis_aliquota) || 0, Number(b.cofins_aliquota) || 0,
+      pesoLiq, b.usa_balanca ? 1 : 0
     );
 
-    // Registrar movimentação inicial de estoque
-    if (estoque_atual > 0) {
+    if (estoqueAtual > 0) {
       db.prepare(`
         INSERT INTO movimentacoes_estoque (produto_id, tipo, quantidade, estoque_anterior, estoque_posterior, motivo)
         VALUES (?, 'entrada', ?, 0, ?, 'Estoque inicial')
-      `).run(result.lastInsertRowid, estoque_atual, estoque_atual);
+      `).run(result.lastInsertRowid, estoqueAtual, estoqueAtual);
     }
 
     res.status(201).json({ id: result.lastInsertRowid, message: 'Produto criado com sucesso' });
   } catch (err) {
-    if (err.message.includes('UNIQUE')) {
-      return res.status(400).json({ error: 'Código de barras já cadastrado' });
+    if (err.message && err.message.includes('UNIQUE')) {
+      return res.status(400).json({ error: 'Codigo de barras ja cadastrado' });
     }
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // Atualizar produto
-router.put('/:id', (req, res) => {
-  const {
-    codigo_barras, nome, descricao, categoria_id, unidade, preco_custo, preco_venda,
-    margem_lucro, estoque_minimo, ncm, cst, cfop,
-    icms_aliquota, pis_aliquota, cofins_aliquota, peso_liquido, usa_balanca, ativo
-  } = req.body;
-
+router.put('/:id', (req, res, next) => {
   try {
+    v.req(req.body, ['nome', 'preco_venda']);
+    v.strLen(req.body.nome, 'nome', 2, 200);
+    v.strLen(req.body.codigo_barras, 'codigo_barras', null, 60);
+    const precoVenda = v.num(req.body.preco_venda, 'preco_venda', { obrigatorio: true, min: 0 });
+    const precoCusto = v.num(req.body.preco_custo, 'preco_custo', { min: 0 }) || 0;
+    const margem = v.num(req.body.margem_lucro, 'margem_lucro', { min: 0 }) || 0;
+    const estoqueMin = v.num(req.body.estoque_minimo, 'estoque_minimo', { min: 0 }) || 0;
+    const pesoLiq = v.num(req.body.peso_liquido, 'peso_liquido', { min: 0 }) || 0;
+    const b = req.body;
+
     db.prepare(`
       UPDATE produtos SET
         codigo_barras = ?, nome = ?, descricao = ?, categoria_id = ?, unidade = ?,
@@ -110,15 +113,16 @@ router.put('/:id', (req, res) => {
         atualizado_em = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
-      codigo_barras, nome, descricao, categoria_id, unidade,
-      preco_custo, preco_venda, margem_lucro, estoque_minimo,
-      ncm, cst, cfop, icms_aliquota, pis_aliquota,
-      cofins_aliquota, peso_liquido, usa_balanca, ativo !== undefined ? ativo : 1,
+      b.codigo_barras || null, b.nome.trim(), b.descricao || null, b.categoria_id || null, b.unidade || 'UN',
+      precoCusto, precoVenda, margem, estoqueMin,
+      b.ncm || null, b.cst || null, b.cfop || null,
+      Number(b.icms_aliquota) || 0, Number(b.pis_aliquota) || 0,
+      Number(b.cofins_aliquota) || 0, pesoLiq, b.usa_balanca ? 1 : 0, b.ativo !== undefined ? (b.ativo ? 1 : 0) : 1,
       req.params.id
     );
     res.json({ message: 'Produto atualizado com sucesso' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

@@ -1,17 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models/db');
+const v = require('../middleware/validators');
 
 router.get('/', (req, res) => {
   const { busca } = req.query;
-  let sql = `SELECT * FROM fornecedores WHERE ativo = 1`;
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  let where = `WHERE ativo = 1`;
   const params = [];
   if (busca) {
-    sql += ` AND (razao_social LIKE ? OR nome_fantasia LIKE ? OR cnpj LIKE ?)`;
+    where += ` AND (razao_social LIKE ? OR nome_fantasia LIKE ? OR cnpj LIKE ?)`;
     params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`);
   }
-  sql += ` ORDER BY razao_social`;
-  res.json(db.prepare(sql).all(...params));
+  const total = db.prepare(`SELECT COUNT(*) as c FROM fornecedores ` + where).get(...params).c;
+  const fornecedores = db.prepare(`SELECT * FROM fornecedores ` + where + ` ORDER BY razao_social LIMIT ? OFFSET ?`)
+    .all(...params, limit, (page - 1) * limit);
+  res.json({ fornecedores, total, page, pages: Math.ceil(total / limit) || 1 });
 });
 
 router.get('/:id', (req, res) => {
@@ -20,29 +25,43 @@ router.get('/:id', (req, res) => {
   res.json(fornecedor);
 });
 
-router.post('/', (req, res) => {
-  const { razao_social, nome_fantasia, cnpj, ie, endereco, cidade, uf, cep, telefone, email, contato } = req.body;
-  if (!razao_social) return res.status(400).json({ error: 'Razão social é obrigatória' });
-
+router.post('/', (req, res, next) => {
   try {
+    v.req(req.body, ['razao_social']);
+    v.strLen(req.body.razao_social, 'razao_social', 2, 200);
+    v.strLen(req.body.nome_fantasia, 'nome_fantasia', null, 200);
+    const cnpjLimpo = v.cnpj(req.body.cnpj, 'cnpj');
+    const emailNorm = v.email(req.body.email, 'email');
+    if (req.body.uf) v.strLen(req.body.uf, 'uf', 2, 2);
+
+    const b = req.body;
     const result = db.prepare(`
       INSERT INTO fornecedores (razao_social, nome_fantasia, cnpj, ie, endereco, cidade, uf, cep, telefone, email, contato)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(razao_social, nome_fantasia, cnpj, ie, endereco, cidade, uf, cep, telefone, email, contato);
+    `).run(b.razao_social.trim(), b.nome_fantasia || null, cnpjLimpo, b.ie || null, b.endereco || null, b.cidade || null, b.uf || null, b.cep || null, b.telefone || null, emailNorm, b.contato || null);
     res.status(201).json({ id: result.lastInsertRowid, message: 'Fornecedor criado' });
   } catch (err) {
-    if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'CNPJ já cadastrado' });
-    res.status(500).json({ error: err.message });
+    if (err.message && err.message.includes('UNIQUE')) return res.status(400).json({ error: 'CNPJ ja cadastrado' });
+    next(err);
   }
 });
 
-router.put('/:id', (req, res) => {
-  const { razao_social, nome_fantasia, cnpj, ie, endereco, cidade, uf, cep, telefone, email, contato } = req.body;
-  db.prepare(`
-    UPDATE fornecedores SET razao_social=?, nome_fantasia=?, cnpj=?, ie=?, endereco=?, cidade=?, uf=?, cep=?, telefone=?, email=?, contato=?, atualizado_em=CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(razao_social, nome_fantasia, cnpj, ie, endereco, cidade, uf, cep, telefone, email, contato, req.params.id);
-  res.json({ message: 'Fornecedor atualizado' });
+router.put('/:id', (req, res, next) => {
+  try {
+    v.req(req.body, ['razao_social']);
+    v.strLen(req.body.razao_social, 'razao_social', 2, 200);
+    v.strLen(req.body.nome_fantasia, 'nome_fantasia', null, 200);
+    const cnpjLimpo = v.cnpj(req.body.cnpj, 'cnpj');
+    const emailNorm = v.email(req.body.email, 'email');
+    if (req.body.uf) v.strLen(req.body.uf, 'uf', 2, 2);
+
+    const b = req.body;
+    db.prepare(`
+      UPDATE fornecedores SET razao_social=?, nome_fantasia=?, cnpj=?, ie=?, endereco=?, cidade=?, uf=?, cep=?, telefone=?, email=?, contato=?, atualizado_em=CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(b.razao_social.trim(), b.nome_fantasia || null, cnpjLimpo, b.ie || null, b.endereco || null, b.cidade || null, b.uf || null, b.cep || null, b.telefone || null, emailNorm, b.contato || null, req.params.id);
+    res.json({ message: 'Fornecedor atualizado' });
+  } catch (err) { next(err); }
 });
 
 router.delete('/:id', (req, res) => {

@@ -1,6 +1,6 @@
 /**
  * Script para empacotar o sistema para distribuicao
- * Cria uma pasta "SupermercadoPeres" pronta para copiar em outros PCs
+ * Cria uma pasta "SistemaGestao" pronta para copiar em outros PCs
  *
  * Uso: node scripts/empacotar.js
  */
@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const DIST = path.join(ROOT, 'dist', 'SupermercadoPeres');
+const DIST = path.join(ROOT, 'dist', 'SistemaGestao');
 
 function copyDir(src, dest) {
   if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
@@ -25,7 +25,7 @@ function copyDir(src, dest) {
 }
 
 console.log('');
-console.log('=== EMPACOTANDO SUPERMERCADO PERES ===');
+console.log('=== EMPACOTANDO SISTEMA DE GESTAO ===');
 console.log('');
 
 // Limpar dist anterior
@@ -47,7 +47,7 @@ for (var pasta of pastas) {
 }
 
 // Copiar arquivos da raiz
-var arquivos = ['package.json', 'Iniciar Supermercado Peres.bat'];
+var arquivos = ['package.json', 'Iniciar Sistema.bat'];
 for (var arq of arquivos) {
   var src = path.join(ROOT, arq);
   if (fs.existsSync(src)) {
@@ -59,7 +59,7 @@ for (var arq of arquivos) {
 // Criar LEIA-ME
 var leiame = [
   '=============================================',
-  '  SUPERMERCADO PERES - Sistema de Gestao',
+  '  SISTEMA DE GESTAO COMERCIAL',
   '=============================================',
   '',
   'COMO INSTALAR:',
@@ -71,7 +71,7 @@ var leiame = [
   '',
   '2. Copie esta pasta inteira para o computador',
   '',
-  '3. De duplo clique em "Iniciar Supermercado Peres.bat"',
+  '3. De duplo clique em "Iniciar Sistema.bat"',
   '',
   '4. O sistema vai abrir automaticamente no navegador',
   '',
@@ -102,7 +102,7 @@ console.log('Pasta pronta em:');
 console.log(DIST);
 console.log('');
 console.log('Para distribuir:');
-console.log('1. Compacte a pasta "SupermercadoPeres" em um .zip');
+console.log('1. Compacte a pasta "SistemaGestao" em um .zip');
 console.log('2. Envie o .zip para o outro computador');
 console.log('3. Descompacte e siga o LEIA-ME.txt');
 console.log('');

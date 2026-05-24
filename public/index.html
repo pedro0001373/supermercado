@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Supermercado Peres - Sistema de Gestão</title>
+  <title id="pageMainTitle">Nome do seu Comercio - Sistema de Gestão</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -12,8 +12,8 @@
 <div id="loginScreen" class="login-screen">
   <div class="login-box">
     <div class="login-logo">
-      <div class="logo" style="width:56px;height:56px;font-size:28px;background:linear-gradient(135deg,#4f9cf7,#6366f1);border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;margin:0 auto 16px">P</div>
-      <h1>Supermercado Peres</h1>
+      <div class="logo" id="loginLogoLetra" style="width:56px;height:56px;font-size:28px;background:linear-gradient(135deg,#4f9cf7,#6366f1);border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;margin:0 auto 16px">?</div>
+      <h1 id="loginNomeComercio">Nome do seu Comercio</h1>
       <p>Sistema de Gestao</p>
     </div>
     <form id="loginForm" onsubmit="fazerLogin(event)">
@@ -41,8 +41,8 @@
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="logo">P</div>
-      <h1>Supermercado Peres</h1>
+      <div class="logo" id="sidebarLogoLetra">P</div>
+      <h1 id="sidebarNomeComercio">Nome do seu Comercio</h1>
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">
@@ -93,6 +93,13 @@
         </div>
       </div>
       <div class="nav-section">
+        <div class="nav-section-title">Financeiro</div>
+        <div class="nav-item" data-page="financeiro" onclick="navigateTo('financeiro')">
+          <span class="icon">&#x1F4B5;</span><span>Financeiro</span>
+          <span class="badge" id="badgeFinanceiro" style="display:none">0</span>
+        </div>
+      </div>
+      <div class="nav-section">
         <div class="nav-section-title">Sistema</div>
         <div class="nav-item" data-page="relatorios" onclick="navigateTo('relatorios')">
           <span class="icon">&#x1F4C8;</span><span>Relatórios</span>
@@ -123,7 +130,28 @@
     <header class="header">
       <button class="menu-toggle" onclick="toggleSidebar()">&#9776;</button>
       <span class="page-title" id="pageTitle">Dashboard</span>
+      <!-- Busca Global -->
+      <div class="global-search" id="globalSearchBox">
+        <span class="search-icon">&#x1F50D;</span>
+        <input type="text" id="globalSearchInput" placeholder="Buscar produtos, vendas, fornecedores... (Ctrl+K)" oninput="globalSearchDebounce()" onfocus="globalSearchFocus()" autocomplete="off">
+        <div class="global-search-results" id="globalSearchResults"></div>
+      </div>
       <div class="header-actions">
+        <!-- Notificacoes -->
+        <div style="position:relative">
+          <button class="notif-btn" id="notifBtn" onclick="toggleNotifPanel()" title="Notificacoes">&#x1F514;<span class="notif-badge" id="notifBadge" style="display:none">0</span></button>
+          <div class="notif-panel" id="notifPanel">
+            <div class="notif-panel-header">
+              <span>Notificacoes</span>
+              <button class="btn btn-sm btn-outline" onclick="limparNotificacoes()">Limpar</button>
+            </div>
+            <div class="notif-panel-body" id="notifPanelBody">
+              <div class="notif-empty">Nenhuma notificacao</div>
+            </div>
+          </div>
+        </div>
+        <!-- Toggle tema -->
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Alternar tema claro/escuro">&#x1F319;</button>
         <span id="caixaStatus" class="status status-danger" style="cursor:pointer" onclick="navigateTo('pdv')">Caixa Fechado</span>
         <span class="text-muted" id="headerDate"></span>
         <span class="text-muted" id="headerUser" style="cursor:pointer" onclick="modalAlterarSenha()" title="Clique para alterar senha"></span>
@@ -166,8 +194,15 @@
           <button class="btn btn-primary btn-lg mt-2" onclick="abrirCaixaModal()">Abrir Caixa</button>
         </div>
         <div id="pdvCaixaAberto" style="display:none">
+          <div class="pdv-fullscreen-bar" id="pdvFullscreenBar">
+            <span><strong id="pdvFullscreenNome">Nome do seu Comercio</strong> - PDV Tela Cheia</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="text-muted" id="pdvFullscreenClock"></span>
+              <button class="btn btn-sm btn-outline" onclick="togglePdvFullscreen()">&#x2716; Sair Tela Cheia</button>
+            </div>
+          </div>
           <div class="pdv-atalhos">
-            <span>F1 Buscar</span><span>F2 Pagamento</span><span>F4 Cancela Item</span><span>F6 Desconto</span><span>F7 Cliente</span><span>F8 Caixa</span><span>F9 Sangria</span><span>ESC Cancelar</span>
+            <span>F1 Buscar</span><span>F2 Pagamento</span><span>F4 Cancela Item</span><span>F6 Desconto</span><span>F7 Cliente</span><span>F8 Caixa</span><span>F9 Sangria</span><span>F11 Tela Cheia</span><span>ESC Cancelar</span>
           </div>
           <div class="pdv-container">
             <div class="pdv-items">
@@ -378,6 +413,97 @@
       </div>
 
       <!-- ============ RELATÓRIOS ============ -->
+      <div class="page" id="page-financeiro">
+        <div class="card">
+          <div class="tabs">
+            <div class="tab active" onclick="financeiroTab('pagar')">Contas a Pagar</div>
+            <div class="tab" onclick="financeiroTab('receber')">Contas a Receber</div>
+            <div class="tab" onclick="financeiroTab('fluxo')">Fluxo de Caixa</div>
+            <div class="tab" onclick="financeiroTab('relatorios')">Relatorios</div>
+          </div>
+
+          <div id="tabPagar" class="tab-content" style="display:block">
+            <div class="table-header">
+              <h3>Contas a Pagar</h3>
+              <div>
+                <select class="form-control" id="filtroStatusPagar" onchange="carregarContasPagar()" style="display:inline-block;width:auto;margin-right:8px">
+                  <option value="">Todas</option>
+                  <option value="aberto">Abertas</option>
+                  <option value="atrasado">Atrasadas</option>
+                  <option value="pago">Pagas</option>
+                </select>
+                <button class="btn btn-primary" onclick="modalContaPagar()">+ Nova Conta</button>
+              </div>
+            </div>
+            <div id="resumoPagar" class="cards-grid" style="margin-bottom:16px"></div>
+            <div class="table-container" style="box-shadow:none">
+              <table>
+                <thead><tr><th>Descricao</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Acoes</th></tr></thead>
+                <tbody id="contasPagarBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabReceber" class="tab-content" style="display:none">
+            <div class="table-header">
+              <h3>Contas a Receber</h3>
+              <div>
+                <select class="form-control" id="filtroStatusReceber" onchange="carregarContasReceber()" style="display:inline-block;width:auto;margin-right:8px">
+                  <option value="">Todas</option>
+                  <option value="aberto">Abertas</option>
+                  <option value="atrasado">Atrasadas</option>
+                  <option value="recebido">Recebidas</option>
+                </select>
+                <button class="btn btn-primary" onclick="modalContaReceber()">+ Nova Conta</button>
+              </div>
+            </div>
+            <div id="resumoReceber" class="cards-grid" style="margin-bottom:16px"></div>
+            <div class="table-container" style="box-shadow:none">
+              <table>
+                <thead><tr><th>Descricao</th><th>Cliente</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Acoes</th></tr></thead>
+                <tbody id="contasReceberBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabFluxo" class="tab-content" style="display:none">
+            <div class="table-header">
+              <h3>Fluxo de Caixa</h3>
+              <div>
+                <input type="date" class="form-control" id="fluxoInicio" style="display:inline-block;width:auto;margin-right:8px">
+                <input type="date" class="form-control" id="fluxoFim" style="display:inline-block;width:auto;margin-right:8px">
+                <select class="form-control" id="fluxoAgrupar" style="display:inline-block;width:auto;margin-right:8px">
+                  <option value="dia">Diario</option>
+                  <option value="mes">Mensal</option>
+                </select>
+                <button class="btn btn-primary" onclick="carregarFluxoCaixa()">Gerar</button>
+                <button class="btn btn-outline" onclick="exportarFluxoCsv()">Exportar CSV</button>
+              </div>
+            </div>
+            <div id="fluxoCaixaResumo" class="cards-grid" style="margin-bottom:16px"></div>
+            <div class="table-container" style="box-shadow:none">
+              <table>
+                <thead><tr><th>Periodo</th><th>Entradas</th><th>Saidas</th><th>Saldo</th><th>Saldo Acumulado</th></tr></thead>
+                <tbody id="fluxoCaixaBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabRelatoriosFin" class="tab-content" style="display:none">
+            <div class="table-header">
+              <h3>Relatorios Financeiros</h3>
+            </div>
+            <div class="form-row" style="margin-bottom:16px">
+              <div class="form-group"><label>Ano</label><input type="number" class="form-control" id="relatoriosAno" value=""></div>
+              <div class="form-group" style="display:flex;align-items:flex-end;gap:8px">
+                <button class="btn btn-primary" onclick="carregarRelatoriosFinanceiros()">Atualizar</button>
+              </div>
+            </div>
+            <div id="relatoriosFinBody"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="page" id="page-relatorios">
         <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
           <div class="card" style="cursor:pointer" onclick="relatorioVendas()">
@@ -488,6 +614,41 @@
               <div class="form-group"><label>Intervalo entre alertas (horas)</label><input class="form-control" name="alerta_intervalo_horas" type="number" placeholder="24"></div>
             </div>
 
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">Impressora Termica (ESC/POS)</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Modelo</label>
+                <select class="form-control" name="impressora_modelo">
+                  <option value="epson">Epson (generica ESC/POS)</option>
+                  <option value="bematech">Bematech</option>
+                  <option value="elgin">Elgin</option>
+                  <option value="daruma">Daruma</option>
+                  <option value="star">Star</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Endereco (IP:porta ou COM3)</label><input class="form-control" name="impressora_endereco" placeholder="192.168.1.100:9100 ou COM3"></div>
+              <div class="form-group"><label>Largura (cols)</label><input class="form-control" name="impressora_largura" type="number" placeholder="48" style="max-width:120px"></div>
+              <div class="form-group">
+                <label>Imprimir cupom automaticamente apos venda</label>
+                <select class="form-control" name="impressora_auto_cupom">
+                  <option value="0">Nao</option>
+                  <option value="1">Sim</option>
+                </select>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline" onclick="testarImpressora()" style="margin-bottom:20px">Testar Impressao</button>
+
+            <h4 style="margin:20px 0 12px;color:var(--gray-700)">Seguranca</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Sessao unica por usuario</label>
+                <select class="form-control" name="sessao_unica">
+                  <option value="1">Ativada (bloqueia login simultaneo)</option>
+                  <option value="0">Desativada</option>
+                </select>
+              </div>
+            </div>
+
             <h4 style="margin:20px 0 12px;color:var(--gray-700)">Codigo de Barras Interno</h4>
             <div class="form-row">
               <div class="form-group"><label>Prefixo (3 digitos)</label><input class="form-control" name="codigo_barras_prefixo" maxlength="3" style="max-width:120px"></div>
@@ -574,6 +735,11 @@
 
 <!-- TOASTS -->
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- HEDRO SYSTEMS - BADGE FLUTUANTE -->
+<a href="https://wa.me/5513997376191" target="_blank" class="hedro-float" title="WhatsApp (13) 99737-6191">
+  <img src="/img/hedro-logo.jpeg" alt="Hedro Systems" class="hedro-float-logo">
+</a>
 
 <script src="/js/app.js"></script>
 </body>

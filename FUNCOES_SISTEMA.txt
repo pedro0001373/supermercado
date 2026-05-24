@@ -1,14 +1,14 @@
 ================================================================================
-         SUPERMERCADO PERES - DOCUMENTACAO COMPLETA DE FUNCOES
-                    Sistema de Gestao v2.0
-                    Gerado em: 08/04/2026
+         SISTEMA DE GESTAO COMERCIAL - DOCUMENTACAO COMPLETA DE FUNCOES
+                    Sistema de Gestao v2.6
+                    Gerado em: 17/04/2026
 ================================================================================
 
 ARQUITETURA:
   Backend:  Node.js + Express (porta 3000)
   Banco:    sql.js (SQLite via WebAssembly) - arquivo: data/supermercado.db
   Frontend: SPA em HTML/CSS/JS puro (sem framework)
-  Tema:     Escuro com CSS custom properties
+  Tema:     Escuro/Claro com toggle (CSS custom properties)
   Auth:     bcryptjs + localStorage (peres_user)
   Email:    nodemailer (alertas)
   XML:      xml2js + multer (importacao NF-e)
@@ -338,7 +338,9 @@ POST /api/vendas/:id/cancelar
     F7 = Cliente fidelidade
     F8 = Abrir/fechar caixa
     F9 = Sangria
-    ESC = Cancelar venda (ou fechar modal)
+    F11 = Tela cheia (modo sem distracoes)
+    ESC = Cancelar venda (ou fechar modal/busca)
+    Ctrl+K = Busca global (funciona em todas as paginas)
 
 ================================================================================
 10. NFC-e (src/routes/nfce.js)
@@ -386,6 +388,46 @@ GET /api/relatorios/produtos-mais-vendidos
   - Params: data_inicio, data_fim, limit
   - Inclui: categoria, preco_medio
 
+GET /api/relatorios/margem-lucro
+  - Margem de lucro por produto
+  - Retorna: receita, custo, lucro, margem_pct por produto
+
+GET /api/relatorios/margem-categoria
+  - Margem de lucro agrupada por categoria
+
+GET /api/relatorios/curva-abc
+  - Classificacao ABC de produtos por faturamento
+  - A = 80%, B = 15%, C = 5% do faturamento
+  - Retorna: pct_acumulado e classe (A/B/C) por produto
+
+GET /api/relatorios/comparativo-mensal
+  - Evolucao de vendas dos ultimos 12 meses
+  - Retorna: mes, total_vendas, qtd_vendas, ticket_medio
+
+GET /api/relatorios/vendas-dia-semana
+  - Vendas agrupadas por dia da semana
+
+GET /api/relatorios/vendas-por-hora
+  - Vendas agrupadas por hora do dia
+
+GET /api/relatorios/perdas-completo
+  - Perdas por tipo (vencimento, avaria, furto) e por categoria
+  - Retorna: resumo por tipo e detalhamento por categoria
+
+GET /api/relatorios/fluxo-caixa
+  - Fluxo de caixa com entradas (vendas) e saidas (sangrias + compras)
+  - Params: data_inicio, data_fim
+  - Retorna: entradas, saidas, saldo por dia
+
+POST /api/relatorios/exportar
+  - Endpoint para exportacao CSV server-side
+
+--- EXPORTACAO (Frontend) ---
+  - Exportar CSV: com BOM UTF-8, separador ponto-e-virgula (compativel Excel)
+  - Exportar PDF: via window.open() + print() com HTML formatado
+  - Graficos de barras: CSS puro (div heights como porcentagens)
+  - Todos os relatorios tem botoes CSV e PDF
+
 ================================================================================
 12. CONFIGURACOES (src/routes/configuracoes.js)
 ================================================================================
@@ -404,7 +446,21 @@ CONFIGURACOES DISPONIVEIS:
   alerta_intervalo_horas, codigo_barras_prefixo, codigo_barras_proximo
 
 ================================================================================
-13. SISTEMA DE LOG/AUDITORIA (src/middleware/logger.js)
+13. BUSCA GLOBAL (src/server.js)
+================================================================================
+
+GET /api/busca-global?q=
+  - Busca simultanea em produtos, fornecedores e vendas
+  - Minimo 2 caracteres
+  - Produtos: busca por nome ou codigo_barras (limite 8)
+  - Fornecedores: busca por razao_social ou cnpj (limite 5)
+  - Vendas: busca por numero_venda ou id (limite 5)
+  - Atalho: Ctrl+K para focar no campo de busca
+  - Dropdown com resultados agrupados por tipo
+  - Clique navega para a pagina correspondente
+
+================================================================================
+14. SISTEMA DE LOG/AUDITORIA (src/middleware/logger.js)
 ================================================================================
 
 Funcao: registrarLog(usuario_id, usuario_nome, acao, modulo, detalhes, ip)
@@ -420,7 +476,7 @@ Acoes registradas:
   Sistema:  backup_manual
 
 ================================================================================
-14. BACKUP AUTOMATICO (src/models/database.js)
+15. BACKUP AUTOMATICO (src/models/database.js)
 ================================================================================
 
   - Backup automatico a cada 6 horas
@@ -431,7 +487,7 @@ Acoes registradas:
   - Backup manual disponivel via POST /api/auth/backups
 
 ================================================================================
-15. BANCO DE DADOS - TABELAS (src/models/database.js)
+16. BANCO DE DADOS - TABELAS (src/models/database.js)
 ================================================================================
 
   fornecedores          - Cadastro de fornecedores
@@ -459,7 +515,88 @@ Acoes registradas:
 TOTAL: 21 tabelas + 14 indices
 
 ================================================================================
-16. FRONTEND - PAGINAS E FUNCOES (public/js/app.js)
+17. VISUAL / USABILIDADE
+================================================================================
+
+--- TEMA CLARO/ESCURO ---
+  - Botao toggle no header (lua = escuro, sol = claro)
+  - Tema claro com cores profissionais: fundo branco/cinza, textos escuros
+  - CSS variables via [data-theme="light"] override
+  - Preferencia salva em localStorage (peres_theme)
+  - Transicao suave entre temas
+
+--- MODO TELA CHEIA PDV ---
+  - Atalho F11 no PDV para ativar/desativar
+  - Esconde sidebar e header completamente
+  - Barra superior propria com:
+    - Nome do comercio (dinamico da configuracao)
+    - Relogio em tempo real (atualiza a cada segundo)
+    - Botao "Sair Tela Cheia"
+  - Usa Fullscreen API nativa do navegador
+  - Ideal para operadores focarem apenas no caixa
+
+--- NOME DO COMERCIO DINAMICO ---
+  - Nome do estabelecimento totalmente configuravel
+  - Configurado em: Configuracoes > Dados da Empresa > Nome Fantasia
+  - Atualiza automaticamente em tempo real em:
+    - Titulo da aba do navegador
+    - Tela de login (nome + letra do logo)
+    - Sidebar (nome + letra do logo)
+    - PDV tela cheia
+    - Cupons NFC-e
+    - Relatorios PDF
+    - Alertas de email/WhatsApp
+  - Cache em localStorage (peres_nome_comercio) para load instantaneo
+  - Letra inicial vira o simbolo do logo automaticamente
+  - Funcoes: aplicarNomeComercio, carregarNomeComercio
+
+--- BADGE HEDRO SYSTEMS (WhatsApp) ---
+  - Logo flutuante no canto inferior direito
+  - Imagem: public/img/hedro-logo.jpeg (copiada de WhatsApp Image)
+  - Tamanho: 120x68px (desktop) / 90x50px (celular)
+  - Animacao de brilho pulsante azul (hedroGlow 3s)
+  - Hover: elevacao + scale + brilho mais forte
+  - Clique: abre WhatsApp direto em https://wa.me/5513997376191
+  - Numero: (13) 99737-6191
+  - Adapta ao tema claro
+  - Escondido no modo tela cheia PDV e na impressao
+
+--- RESPONSIVO PARA CELULAR ---
+  - Breakpoints: 1024px, 768px, 480px
+  - 1024px: sidebar overlay (ja existia), menu hamburger
+  - 768px: cards em 2 colunas, PDV em coluna unica, tabs com scroll horizontal,
+           modais em 96% da largura, formularios em coluna unica
+  - 480px: cards em 1 coluna, atalhos PDV escondidos, data do header escondida,
+           painel notificacoes em tela cheia, fonte menor em tabelas
+  - Gerente pode consultar dashboard, estoque, vendas pelo celular
+
+--- NOTIFICACOES EM TEMPO REAL ---
+  - Sino (bell) no header com badge de contagem
+  - Painel dropdown clicavel com lista de notificacoes
+  - Verificacao automatica a cada 2 minutos:
+    - Estoque zerado (alerta vermelho)
+    - Estoque abaixo do minimo (alerta amarelo)
+    - Produtos vencidos (alerta vermelho)
+    - Produtos proximos do vencimento (7 dias, alerta amarelo)
+  - Toast automatico quando nova notificacao aparece
+  - Deduplicacao: mesmo alerta nao repete em 5 minutos
+  - Clique na notificacao navega para a pagina relevante
+  - Notificacoes salvas em localStorage (peres_notifs)
+  - Maximo 20 notificacoes armazenadas
+  - Botao "Limpar" para limpar todas
+
+--- BUSCA GLOBAL ---
+  - Campo de busca no header (entre titulo e acoes)
+  - Atalho Ctrl+K para focar rapidamente
+  - Debounce de 300ms (nao busca a cada tecla)
+  - Busca em: produtos, fornecedores, vendas
+  - Dropdown com resultados agrupados por tipo com icones
+  - Exibe preco/estoque para produtos, CNPJ para fornecedores, valor/data para vendas
+  - Clique navega para a pagina correspondente
+  - Fecha ao clicar fora ou pressionar Escape
+
+================================================================================
+18. FRONTEND - PAGINAS E FUNCOES (public/js/app.js)
 ================================================================================
 
 PAGINAS:
@@ -474,13 +611,16 @@ PAGINAS:
   Notas de Entrada  - Lista, importacao XML, confirmacao
   NFC-e             - Lista com filtros, cancelamento, impressao cupom
   Vendas            - Historico com filtros de data, detalhes, cancelamento
-  Relatorios        - Vendas por periodo, posicao estoque, mais vendidos, perdas
+  Relatorios        - 9 relatorios: vendas, estoque, mais vendidos, comparativo mensal,
+                      margem lucro, curva ABC, fluxo caixa, vendas por hora, perdas
+                      Todos com exportacao CSV e PDF + graficos de barras
   Configuracoes     - Todos os parametros do sistema
   Usuarios          - Gestao de usuarios com reset de senha
   Logs              - Auditoria com filtro por modulo
   Backups           - Lista de backups + backup manual
 
-TOTAL: 16 paginas
+TOTAL: 16 paginas + busca global + notificacoes + tema claro/escuro + tela cheia PDV
+       + nome comercio dinamico + badge Hedro Systems WhatsApp
 
 FUNCOES JAVASCRIPT FRONTEND (principais):
   Utilitarios:      formatMoney, formatDate, formatDateTime, toast, api
@@ -505,8 +645,21 @@ FUNCOES JAVASCRIPT FRONTEND (principais):
                     pdvPagamento, addFormaPagamento, calcTroco, finalizarVenda,
                     pdvSangria, pdvSuprimento, pdvCancelarVenda,
                     pdvCliente, buscarClientePdv, selecionarClientePdv, pdvRemoverCliente
-  Relatorios:       relatorioVendas, gerarRelVendas, relatorioEstoque, relatorioProdutosMaisVendidos,
-                    gerarRelTop, relatorioPerdas
+  Relatorios:       relatorioVendas, gerarRelVendas, exportarRelVendasCSV, exportarRelVendasPDF,
+                    relatorioComparativoMensal, exportarComparativoCSV, exportarComparativoPDF,
+                    relatorioMargemLucro, gerarRelMargem, exportarMargemCSV, exportarMargemPDF,
+                    relatorioCurvaABC, gerarRelABC, exportarAbcCSV, exportarAbcPDF,
+                    relatorioEstoque, exportarEstoqueCSV, exportarEstoquePDF,
+                    relatorioProdutosMaisVendidos, gerarRelTop, exportarTopCSV, exportarTopPDF,
+                    relatorioPerdas, gerarRelPerdas, exportarPerdasCSV, exportarPerdasPDF,
+                    relatorioFluxoCaixa, gerarRelFluxo, exportarFluxoCSV, exportarFluxoPDF,
+                    relatorioVendasHora, exportarCSV, exportarPDF, gerarBarrasHtml
+  Tema:             initTheme, applyTheme, toggleTheme
+  Tela Cheia PDV:   togglePdvFullscreen, updatePdvClock
+  Notificacoes:     initNotificacoes, verificarNotificacoes, addNotificacao, renderNotificacoes,
+                    clicarNotificacao, toggleNotifPanel, limparNotificacoes, formatTempoAtras
+  Busca Global:     globalSearchDebounce, globalSearchExecute, globalSearchFocus, globalSearchGo
+  Nome Comercio:    aplicarNomeComercio, carregarNomeComercio (_nomeComercio global)
   Configuracoes:    carregarConfiguracoes, salvarConfiguracoes
   Usuarios:         carregarUsuarios, modalUsuario, salvarUsuario, modalResetSenha, resetarSenha,
                     modalAlterarSenha, alterarSenha
@@ -514,7 +667,7 @@ FUNCOES JAVASCRIPT FRONTEND (principais):
   Backups:          carregarBackups, fazerBackup
 
 ================================================================================
-17. ARQUIVOS DO PROJETO
+19. ARQUIVOS DO PROJETO
 ================================================================================
 
   package.json                  - Dependencias e scripts
@@ -538,20 +691,21 @@ FUNCOES JAVASCRIPT FRONTEND (principais):
   src/routes/configuracoes.js   - Configuracoes do sistema
   public/index.html             - Frontend SPA
   public/js/app.js              - JavaScript principal
-  public/css/style.css          - Estilos (tema escuro)
+  public/css/style.css          - Estilos (tema escuro + claro + responsivo + fullscreen)
+  public/img/hedro-logo.jpeg    - Logo do badge Hedro Systems (WhatsApp)
   scripts/empacotar.js          - Script de empacotamento
   render.yaml                   - Config Render.com
-  Iniciar Supermercado Peres.bat - Launcher Windows
+  Iniciar Sistema.bat           - Launcher Windows
 
 ================================================================================
-18. COMO INICIAR
+20. COMO INICIAR
 ================================================================================
 
   Desenvolvimento:  npm run dev     (com nodemon)
   Producao:         npm start       (node src/server.js)
   Desktop:          npm run desktop (abre no browser automatico)
-  Windows:          Duplo-clique em "Iniciar Supermercado Peres.bat"
-  Empacotar:        npm run empacotar (gera dist/SupermercadoPeres.zip)
+  Windows:          Duplo-clique em "Iniciar Sistema.bat"
+  Empacotar:        npm run empacotar (gera dist/SistemaGestao/)
 
   Login padrao:     admin / admin123
   URL:              http://localhost:3000

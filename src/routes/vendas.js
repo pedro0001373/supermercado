@@ -3,7 +3,6 @@ const router = express.Router();
 const db = require('../models/db');
 const { registrarLog } = require('../middleware/logger');
 
-// Listar vendas
 router.get('/', (req, res) => {
   const { data_inicio, data_fim, status, page = 1, limit = 50 } = req.query;
   let sql = `SELECT * FROM vendas WHERE 1=1`;
@@ -21,18 +20,16 @@ router.get('/', (req, res) => {
   res.json({ vendas: db.prepare(sql).all(...params), total });
 });
 
-// Detalhe da venda
 router.get('/:id', (req, res) => {
   const venda = db.prepare(`SELECT * FROM vendas WHERE id = ?`).get(req.params.id);
-  if (!venda) return res.status(404).json({ error: 'Venda não encontrada' });
+  if (!venda) return res.status(404).json({ error: 'Venda nao encontrada' });
   venda.itens = db.prepare(`SELECT * FROM itens_venda WHERE venda_id = ?`).all(req.params.id);
   venda.pagamentos = db.prepare(`SELECT * FROM pagamentos WHERE venda_id = ?`).all(req.params.id);
   res.json(venda);
 });
 
-// Nova venda (PDV)
 router.post('/', (req, res) => {
-  const { itens, pagamentos: pgtos, cliente_cpf, cliente_nome, cliente_id, desconto, acrescimo, observacoes } = req.body;
+  const { itens, pagamentos: pgtos, cliente_cpf, cliente_nome, cliente_id, desconto, acrescimo, observacoes, a_prazo, vencimento_prazo } = req.body;
 
   const caixa = db.prepare(`SELECT * FROM caixas WHERE status = 'aberto'`).get();
   if (!caixa) return res.status(400).json({ error: 'Nenhum caixa aberto. Abra o caixa antes de vender.' });
@@ -41,7 +38,6 @@ router.post('/', (req, res) => {
   if (!pgtos || !pgtos.length) return res.status(400).json({ error: 'Adicione ao menos uma forma de pagamento' });
 
   const transaction = db.transaction(() => {
-    // Calcular subtotal
     let subtotal = 0;
     for (const item of itens) {
       subtotal += (item.preco_unitario * item.quantidade) - (item.desconto || 0);
@@ -49,26 +45,22 @@ router.post('/', (req, res) => {
 
     const total = subtotal - (desconto || 0) + (acrescimo || 0);
 
-    // Número da venda
     const ultimaVenda = db.prepare(`SELECT MAX(numero_venda) as ultimo FROM vendas`).get();
     const numero_venda = (ultimaVenda.ultimo || 0) + 1;
 
-    // Criar venda
     const vendaResult = db.prepare(`
-      INSERT INTO vendas (caixa_id, numero_venda, cliente_cpf, cliente_nome, cliente_id, subtotal, desconto, acrescimo, total, status, observacoes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?)
-    `).run(caixa.id, numero_venda, cliente_cpf || null, cliente_nome || null, cliente_id || null, subtotal, desconto || 0, acrescimo || 0, total, observacoes || null);
+      INSERT INTO vendas (caixa_id, numero_venda, cliente_cpf, cliente_nome, cliente_id, subtotal, desconto, acrescimo, total, status, observacoes, a_prazo, vencimento_prazo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?)
+    `).run(caixa.id, numero_venda, cliente_cpf || null, cliente_nome || null, cliente_id || null, subtotal, desconto || 0, acrescimo || 0, total, observacoes || null, a_prazo ? 1 : 0, a_prazo ? (vencimento_prazo || null) : null);
 
     const venda_id = vendaResult.lastInsertRowid;
 
-    // Atualizar pontos do cliente fidelidade
     if (cliente_id) {
       const pontos = Math.floor(total);
       db.prepare('UPDATE clientes SET pontos = pontos + ?, total_compras = total_compras + ?, qtd_compras = qtd_compras + 1, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?')
         .run(pontos, total, cliente_id);
     }
 
-    // Inserir itens e baixar estoque
     const stmtItem = db.prepare(`
       INSERT INTO itens_venda (venda_id, produto_id, codigo_barras, nome_produto, quantidade, preco_unitario, desconto, subtotal)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -78,7 +70,6 @@ router.post('/', (req, res) => {
       const itemSubtotal = (item.preco_unitario * item.quantidade) - (item.desconto || 0);
       stmtItem.run(venda_id, item.produto_id, item.codigo_barras || null, item.nome_produto || null, item.quantidade, item.preco_unitario, item.desconto || 0, itemSubtotal);
 
-      // Baixar estoque
       const produto = db.prepare(`SELECT * FROM produtos WHERE id = ?`).get(item.produto_id);
       if (produto) {
         const novoEstoque = produto.estoque_atual - item.quantidade;
@@ -90,7 +81,6 @@ router.post('/', (req, res) => {
       }
     }
 
-    // Inserir pagamentos
     const stmtPgto = db.prepare(`
       INSERT INTO pagamentos (venda_id, forma_pagamento, valor, troco, bandeira, nsu, autorizacao, parcelas)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -98,6 +88,12 @@ router.post('/', (req, res) => {
 
     for (const pgto of pgtos) {
       stmtPgto.run(venda_id, pgto.forma_pagamento, pgto.valor, pgto.troco || 0, pgto.bandeira || null, pgto.nsu || null, pgto.autorizacao || null, pgto.parcelas || 1);
+    }
+
+    if (a_prazo && vencimento_prazo) {
+      db.prepare(`INSERT INTO contas_receber (descricao, cliente_id, venda_id, valor, vencimento, status)
+                  VALUES (?, ?, ?, ?, ?, 'aberto')`)
+        .run('Venda a prazo #' + numero_venda, cliente_id || null, venda_id, total, vencimento_prazo);
     }
 
     return { venda_id, numero_venda, total };
@@ -112,13 +108,11 @@ router.post('/', (req, res) => {
   }
 });
 
-// Cancelar venda
 router.post('/:id/cancelar', (req, res) => {
   const venda = db.prepare(`SELECT * FROM vendas WHERE id = ? AND status = 'finalizada'`).get(req.params.id);
-  if (!venda) return res.status(400).json({ error: 'Venda não encontrada ou já cancelada' });
+  if (!venda) return res.status(400).json({ error: 'Venda nao encontrada ou ja cancelada' });
 
   const transaction = db.transaction(() => {
-    // Devolver estoque
     const itens = db.prepare(`SELECT * FROM itens_venda WHERE venda_id = ?`).all(req.params.id);
     for (const item of itens) {
       const produto = db.prepare(`SELECT * FROM produtos WHERE id = ?`).get(item.produto_id);

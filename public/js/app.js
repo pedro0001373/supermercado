@@ -1,5 +1,5 @@
 // ============================================
-// SUPERMERCADO PERES - Frontend JavaScript
+// SISTEMA DE GESTAO COMERCIAL - Frontend JavaScript
 // v2 - Com Login + Bugs Corrigidos
 // ============================================
 
@@ -18,6 +18,16 @@ let pagFormaCount = 1;
 function formatMoney(v) {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
+function resumoQtd(v) {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  return Number(v.qtd) || 0;
+}
+function resumoTotal(v) {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  return Number(v.total) || 0;
+}
 function formatDate(d) {
   if (!d) return '-';
   return new Date(d).toLocaleDateString('pt-BR');
@@ -27,44 +37,96 @@ function formatDateTime(d) {
   const dt = new Date(d);
   return dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
-function toast(msg, type = 'success') {
+function toast(msg, type) {
+  type = type || 'success';
   const c = document.getElementById('toastContainer');
   const t = document.createElement('div');
   t.className = 'toast ' + type;
-  t.innerHTML = '<span>' + msg + '</span>';
+  var icon = type === 'error' ? '&#x26A0;' : (type === 'warning' ? '&#x26A0;' : '&#x2705;');
+  t.innerHTML = '<span style="font-size:16px">' + icon + '</span><span>' + msg + '</span>';
   c.appendChild(t);
-  setTimeout(function() { t.remove(); }, 3500);
+  var ttl = type === 'error' ? 5000 : (type === 'warning' ? 4000 : 3000);
+  setTimeout(function() {
+    t.style.opacity = '0';
+    t.style.transform = 'translateX(100%)';
+    t.style.transition = 'all 0.3s';
+    setTimeout(function() { t.remove(); }, 300);
+  }, ttl);
+}
+
+function confirmar(mensagem, opts) {
+  opts = opts || {};
+  return new Promise(function(resolve) {
+    var title = opts.titulo || 'Confirmar';
+    var okLabel = opts.okLabel || 'Confirmar';
+    var cancelLabel = opts.cancelLabel || 'Cancelar';
+    var perigoso = opts.perigoso === true;
+    var body = '<div style="padding:8px 0;font-size:14px">' + mensagem + '</div>';
+    var footer = '<button class="btn btn-outline" id="confirmarCancel">' + cancelLabel + '</button> '
+      + '<button class="btn ' + (perigoso ? 'btn-danger' : 'btn-primary') + '" id="confirmarOk">' + okLabel + '</button>';
+    abrirModal(title, body, footer);
+    document.getElementById('confirmarCancel').onclick = function() { fecharModal(); resolve(false); };
+    document.getElementById('confirmarOk').onclick = function() { fecharModal(); resolve(true); };
+  });
+}
+
+function togglePasswordEye(inputId, btn) {
+  var el = document.getElementById(inputId);
+  if (!el) return;
+  if (el.type === 'password') { el.type = 'text'; if (btn) btn.innerHTML = '&#x1F648;'; }
+  else { el.type = 'password'; if (btn) btn.innerHTML = '&#x1F441;'; }
+}
+
+// ============ AUTH HELPERS ============
+function getToken() { return localStorage.getItem('peres_token') || ''; }
+function setToken(t) { localStorage.setItem('peres_token', t); }
+function clearAuth() {
+  localStorage.removeItem('peres_token');
+  localStorage.removeItem('peres_user');
 }
 
 async function api(url, opts) {
   opts = opts || {};
   try {
+    var headers = { 'Content-Type': 'application/json' };
+    var token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
     var fetchOpts = {
       method: opts.method || 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      headers: headers
     };
     if (opts.body) fetchOpts.body = JSON.stringify(opts.body);
     var res = await fetch(API + url, fetchOpts);
     var text = await res.text();
     var data;
     try { data = JSON.parse(text); } catch(e) { throw new Error('Resposta invalida do servidor'); }
+    if (res.status === 401) {
+      if (url !== '/api/auth/login') {
+        clearAuth();
+        toast(data.error || 'Sessao expirada. Faca login novamente.', 'error');
+        setTimeout(function(){ window.location.reload(); }, 800);
+      }
+      throw new Error(data.error || 'Nao autorizado');
+    }
+    if (res.status === 403) throw new Error(data.error || 'Permissao insuficiente');
     if (!res.ok) throw new Error(data.error || 'Erro na requisicao');
     return data;
   } catch (err) {
-    toast(err.message, 'error');
+    if (!opts.silent) toast(err.message, 'error');
     throw err;
   }
 }
 
 // ============ LOGIN ============
 function checkLogin() {
+  var token = localStorage.getItem('peres_token');
   var saved = localStorage.getItem('peres_user');
-  if (saved) {
+  if (token && saved) {
     try {
       currentUser = JSON.parse(saved);
       showApp();
     } catch(e) {
-      localStorage.removeItem('peres_user');
+      clearAuth();
     }
   }
 }
@@ -81,8 +143,9 @@ async function fazerLogin(e) {
   btn.disabled = true;
 
   try {
-    var data = await api('/api/auth/login', { method: 'POST', body: { login: login, senha: senha } });
+    var data = await api('/api/auth/login', { method: 'POST', body: { login: login, senha: senha }, silent: true });
     currentUser = data.usuario;
+    if (data.token) setToken(data.token);
     localStorage.setItem('peres_user', JSON.stringify(currentUser));
     showApp();
   } catch(err) {
@@ -94,8 +157,9 @@ async function fazerLogin(e) {
 }
 
 function fazerLogout() {
+  try { api('/api/auth/logout', { method: 'POST', silent: true }); } catch(e) {}
   currentUser = null;
-  localStorage.removeItem('peres_user');
+  clearAuth();
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('appContainer').style.display = 'none';
   document.getElementById('loginUser').value = '';
@@ -105,8 +169,8 @@ function fazerLogout() {
 // Permissoes por perfil
 var perfilPermissoes = {
   operador: ['pdv'],
-  gerente: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'clientes', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios'],
-  admin: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'clientes', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'relatorios', 'configuracoes', 'usuarios', 'logs', 'backups']
+  gerente: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'clientes', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'financeiro', 'relatorios'],
+  admin: ['dashboard', 'pdv', 'produtos', 'categorias', 'fornecedores', 'clientes', 'estoque', 'validade', 'notas-entrada', 'nfce', 'vendas', 'financeiro', 'relatorios', 'configuracoes', 'usuarios', 'logs', 'backups']
 };
 
 function temPermissao(page) {
@@ -150,6 +214,7 @@ function showApp() {
 
   aplicarPermissoes();
   verificarCaixaStatus();
+  initNotificacoes();
 
   // Operador vai direto pro PDV, demais pro dashboard
   var perfil = currentUser ? (currentUser.perfil || 'operador') : 'operador';
@@ -192,7 +257,7 @@ function navigateTo(page) {
     dashboard: 'Dashboard', pdv: 'PDV - Frente de Caixa', produtos: 'Produtos',
     categorias: 'Categorias', fornecedores: 'Fornecedores', clientes: 'Clientes Fidelidade', estoque: 'Controle de Estoque',
     validade: 'Controle de Validade', 'notas-entrada': 'Notas de Entrada',
-    nfce: 'NFC-e', vendas: 'Vendas', relatorios: 'Relatorios', configuracoes: 'Configuracoes',
+    nfce: 'NFC-e', vendas: 'Vendas', financeiro: 'Financeiro', relatorios: 'Relatorios', configuracoes: 'Configuracoes',
     usuarios: 'Usuarios', logs: 'Logs / Auditoria', backups: 'Backups'
   };
   document.getElementById('pageTitle').textContent = titles[page] || page;
@@ -214,6 +279,7 @@ function navigateTo(page) {
     case 'notas-entrada': carregarNotasEntrada(); break;
     case 'nfce': carregarNfce(); break;
     case 'vendas': carregarVendas(); break;
+    case 'financeiro': financeiroTab('pagar'); break;
     case 'configuracoes': carregarConfiguracoes(); break;
     case 'pdv': verificarCaixa(); break;
     case 'usuarios': carregarUsuarios(); break;
@@ -279,6 +345,42 @@ async function carregarDashboard() {
     if (data.estoque_baixo > 0) alertas += '<div class="alert alert-warning clickable" onclick="navigateTo(\'estoque\')">' + data.estoque_baixo + ' produto(s) com estoque baixo &#x27A1;</div>';
     if (data.produtos_vencendo > 0) alertas += '<div class="alert alert-warning clickable" onclick="navigateTo(\'validade\')">' + data.produtos_vencendo + ' produto(s) proximo(s) do vencimento &#x27A1;</div>';
     if (data.produtos_vencidos > 0) alertas += '<div class="alert alert-danger clickable" onclick="validadeTab(\'vencidos\');navigateTo(\'validade\')">' + data.produtos_vencidos + ' produto(s) vencido(s) &#x27A1;</div>';
+
+    if (currentUser && (currentUser.perfil === 'gerente' || currentUser.perfil === 'admin')) {
+      try {
+        var resPag = await api('/api/financeiro/contas-pagar/resumo', { silent: true });
+        var resRec = await api('/api/financeiro/contas-receber/resumo', { silent: true });
+        var pagVencidas = resumoQtd(resPag.vencidas);
+        var pagVencem = resumoQtd(resPag.vencem_7_dias);
+        var recVencidas = resumoQtd(resRec.vencidas);
+        var recVencem = resumoQtd(resRec.vencem_3_dias);
+        if (pagVencidas > 0) alertas += '<div class="alert alert-danger clickable" onclick="navigateTo(\'financeiro\')">' + pagVencidas + ' conta(s) a pagar vencida(s) &#x27A1;</div>';
+        else if (pagVencem > 0) alertas += '<div class="alert alert-warning clickable" onclick="navigateTo(\'financeiro\')">' + pagVencem + ' conta(s) a pagar vencem em 7 dias &#x27A1;</div>';
+        if (recVencidas > 0) alertas += '<div class="alert alert-danger clickable" onclick="navigateTo(\'financeiro\')">' + recVencidas + ' conta(s) a receber atrasada(s) &#x27A1;</div>';
+        else if (recVencem > 0) alertas += '<div class="alert alert-warning clickable" onclick="navigateTo(\'financeiro\')">' + recVencem + ' conta(s) a receber vencem em 3 dias &#x27A1;</div>';
+      } catch(e) {}
+    }
+
+    // Status do backup externo
+    try {
+      var bkp = await api('/api/auth/backups/status', { silent: true });
+      var classe, texto;
+      if (bkp.status === 'ok') {
+        classe = 'alert-success';
+        texto = 'Backup externo em dia (ultimo: ha ' + bkp.dias_sem_backup + ' dia(s))';
+      } else if (bkp.status === 'atrasado') {
+        classe = 'alert-warning';
+        texto = 'ATENCAO: ultimo backup externo bem-sucedido foi ha ' + bkp.dias_sem_backup + ' dia(s)';
+      } else if (bkp.status === 'critico') {
+        classe = 'alert-danger';
+        texto = 'CRITICO: sem backup externo ha ' + bkp.dias_sem_backup + ' dia(s)! Verifique o agendamento.';
+      } else {
+        classe = 'alert-danger';
+        texto = 'CRITICO: nenhum backup externo foi executado ainda. Configure o agendamento.';
+      }
+      alertas += '<div class="alert ' + classe + '">' + texto + '</div>';
+    } catch(e) { /* endpoint pode nao estar disponivel */ }
+
     if (!alertas) alertas = '<div class="alert alert-success">Nenhum alerta no momento</div>';
     document.getElementById('dashboardAlertas').innerHTML = alertas;
 
@@ -409,8 +511,9 @@ async function carregarFornecedores() {
   try {
     var busca = document.getElementById('buscaFornecedor') ? document.getElementById('buscaFornecedor').value : '';
     var data = await api('/api/fornecedores?busca=' + encodeURIComponent(busca));
-    document.getElementById('fornecedoresBody').innerHTML = data.length
-      ? data.map(function(f) { return '<tr><td>' + f.razao_social + '</td><td>' + (f.nome_fantasia||'-') + '</td><td class="font-mono">' + (f.cnpj||'-') + '</td><td>' + (f.telefone||'-') + '</td><td>' + (f.cidade||'-') + '/' + (f.uf||'-') + '</td><td><button class="btn btn-sm btn-outline" onclick="modalFornecedor(' + f.id + ')">Editar</button></td></tr>'; }).join('')
+    var lista = data.fornecedores || data || [];
+    document.getElementById('fornecedoresBody').innerHTML = lista.length
+      ? lista.map(function(f) { return '<tr><td>' + f.razao_social + '</td><td>' + (f.nome_fantasia||'-') + '</td><td class="font-mono">' + (f.cnpj||'-') + '</td><td>' + (f.telefone||'-') + '</td><td>' + (f.cidade||'-') + '/' + (f.uf||'-') + '</td><td><button class="btn btn-sm btn-outline" onclick="modalFornecedor(' + f.id + ')">Editar</button></td></tr>'; }).join('')
       : '<tr><td colspan="6" class="text-center text-muted" style="padding:30px">Nenhum fornecedor</td></tr>';
   } catch(e) { console.error(e); }
 }
@@ -853,7 +956,7 @@ async function processarXml(input) {
   var file = input.files[0]; if (!file) return;
   var formData = new FormData(); formData.append('xml', file);
   try {
-    var res = await fetch(API + '/api/notas-entrada/importar-xml', { method: 'POST', body: formData });
+    var res = await fetch(API + '/api/notas-entrada/importar-xml', { method: 'POST', body: formData, headers: { 'Authorization': 'Bearer ' + getToken() } });
     var data = await res.json();
     if (!res.ok) throw new Error(data.error);
     toast('XML importado! ' + data.itens + ' itens');
@@ -933,7 +1036,7 @@ async function imprimirCupom(id) {
       '.total{font-size:16px;font-weight:bold;text-align:right;padding:8px 0}' +
       '.row{display:flex;justify-content:space-between;padding:1px 0}' +
       '</style></head><body>' +
-      '<div class="center"><strong style="font-size:14px">' + (data.empresa.empresa_nome_fantasia||'SUPERMERCADO PERES') + '</strong></div>' +
+      '<div class="center"><strong style="font-size:14px">' + (data.empresa.empresa_nome_fantasia||_nomeComercio) + '</strong></div>' +
       '<div class="center" style="font-size:10px">' + (data.empresa.empresa_razao_social||'') + '</div>' +
       '<div class="center" style="font-size:10px">CNPJ: ' + (data.empresa.empresa_cnpj||'') + '</div>' +
       (data.empresa.empresa_endereco ? '<div class="center" style="font-size:10px">' + data.empresa.empresa_endereco + '</div>' : '') +
@@ -960,7 +1063,7 @@ async function imprimirCupom(id) {
       '<div class="line"></div>' +
       '<div class="center" style="font-size:10px">' + (data.nfce.ambiente==='homologacao'?'** HOMOLOGACAO - SEM VALOR FISCAL **':'DOCUMENTO FISCAL VALIDO') + '</div>' +
       '<div class="center" style="font-size:10px;margin-top:8px">Obrigado pela preferencia!</div>' +
-      '<div class="center" style="font-size:10px">' + (data.empresa.empresa_nome_fantasia||'SUPERMERCADO PERES') + '</div>' +
+      '<div class="center" style="font-size:10px">' + (data.empresa.empresa_nome_fantasia||_nomeComercio) + '</div>' +
       '<script>setTimeout(function(){window.print();},300);<\/script></body></html>');
   } catch(e) { console.error(e); }
 }
@@ -999,8 +1102,9 @@ async function cancelarVenda(id) {
 async function carregarClientes() {
   try {
     var data = await api('/api/clientes');
-    document.getElementById('clientesBody').innerHTML = data.length
-      ? data.map(function(c) {
+    var lista = data.clientes || data || [];
+    document.getElementById('clientesBody').innerHTML = lista.length
+      ? lista.map(function(c) {
         return '<tr><td><strong>' + c.nome + '</strong></td><td class="font-mono">' + (c.cpf||'-') + '</td><td>' + (c.telefone||'-') + '</td><td><strong>' + (c.pontos||0) + '</strong></td><td>' + formatMoney(c.total_compras||0) + '</td><td>' + (c.qtd_compras||0) + '</td><td><button class="btn btn-sm btn-outline" onclick="modalCliente(' + c.id + ')">Editar</button> <button class="btn btn-sm btn-primary" onclick="verCliente(' + c.id + ')">Historico</button></td></tr>';
       }).join('')
       : '<tr><td colspan="7" class="text-center text-muted" style="padding:30px">Nenhum cliente cadastrado</td></tr>';
@@ -1105,7 +1209,7 @@ async function pdvBuscarProduto(e) {
   if (!termo) return;
   try {
     var produto = null;
-    try { var r = await fetch(API + '/api/produtos/barcode/' + encodeURIComponent(termo)); if (r.ok) produto = await r.json(); } catch(e2) {}
+    try { var r = await fetch(API + '/api/produtos/barcode/' + encodeURIComponent(termo), { headers: { 'Authorization': 'Bearer ' + getToken() } }); if (r.ok) produto = await r.json(); } catch(e2) {}
     if (!produto) {
       var data = await api('/api/produtos?busca=' + encodeURIComponent(termo) + '&limit=10');
       if (data.produtos.length === 1) { produto = data.produtos[0]; }
@@ -1390,7 +1494,7 @@ function exportarPDF(titulo, conteudoHtml) {
     '.badge-c{background:#f87171;color:#fff;padding:2px 6px;border-radius:3px;font-size:10px}' +
     '</style></head><body>');
   w.document.write('<h1>' + titulo + '</h1>');
-  w.document.write('<h2>Supermercado Peres - ' + new Date().toLocaleDateString('pt-BR') + '</h2>');
+  w.document.write('<h2>' + _nomeComercio + ' - ' + new Date().toLocaleDateString('pt-BR') + '</h2>');
   w.document.write(conteudoHtml);
   w.document.write('<script>setTimeout(function(){window.print();},400);<\/script></body></html>');
 }
@@ -1805,6 +1909,8 @@ async function salvarConfiguracoes(e) {
     var d = Object.fromEntries(new FormData(document.getElementById('formConfiguracoes')));
     await api('/api/configuracoes', { method: 'PUT', body: d });
     toast('Configuracoes salvas!');
+    // Atualizar nome do comercio em tempo real
+    if (d.empresa_nome_fantasia) aplicarNomeComercio(d.empresa_nome_fantasia);
   } catch(e) {}
 }
 
@@ -1927,8 +2033,18 @@ async function fazerBackup() {
 
 // ============ ATALHOS ============
 document.addEventListener('keydown', function(e) {
+  // Ctrl+K - Busca global
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    var si = document.getElementById('globalSearchInput');
+    if (si) { si.focus(); si.select(); }
+    return;
+  }
+
   // Atalhos globais
   if (e.key === 'Escape') {
+    var searchRes = document.getElementById('globalSearchResults');
+    if (searchRes && searchRes.classList.contains('show')) { searchRes.classList.remove('show'); return; }
     var modal = document.getElementById('modalOverlay');
     if (modal && modal.classList.contains('show')) { fecharModal(); return; }
     if (currentPage === 'pdv') { pdvCancelarVenda(); return; }
@@ -1951,8 +2067,561 @@ document.addEventListener('keydown', function(e) {
       else abrirCaixaModal();
     }
     if (e.key === 'F9') { e.preventDefault(); pdvSangria(); }
+    if (e.key === 'F11') { e.preventDefault(); togglePdvFullscreen(); }
   }
 });
 
-// ============ INICIALIZACAO ============
+// ============ TEMA CLARO/ESCURO ============
+function initTheme() {
+  var saved = localStorage.getItem('peres_theme') || 'dark';
+  applyTheme(saved);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  var btn = document.getElementById('themeToggle');
+  if (btn) btn.innerHTML = theme === 'dark' ? '&#x1F319;' : '&#x2600;';
+  localStorage.setItem('peres_theme', theme);
+}
+
+function toggleTheme() {
+  var current = localStorage.getItem('peres_theme') || 'dark';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// ============ MODO TELA CHEIA PDV ============
+var _pdvFullscreen = false;
+var _pdvClockInterval = null;
+
+function togglePdvFullscreen() {
+  _pdvFullscreen = !_pdvFullscreen;
+  var container = document.getElementById('appContainer');
+  if (_pdvFullscreen) {
+    container.classList.add('pdv-fullscreen');
+    // Update clock
+    updatePdvClock();
+    _pdvClockInterval = setInterval(updatePdvClock, 1000);
+    // Try native fullscreen
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(function(){});
+    }
+  } else {
+    container.classList.remove('pdv-fullscreen');
+    if (_pdvClockInterval) { clearInterval(_pdvClockInterval); _pdvClockInterval = null; }
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(function(){});
+    }
+  }
+}
+
+function updatePdvClock() {
+  var el = document.getElementById('pdvFullscreenClock');
+  if (el) {
+    var now = new Date();
+    el.textContent = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' - ' + now.toLocaleDateString('pt-BR');
+  }
+}
+
+// ============ NOTIFICACOES EM TEMPO REAL ============
+var _notificacoes = [];
+var _notifInterval = null;
+
+function initNotificacoes() {
+  _notificacoes = JSON.parse(localStorage.getItem('peres_notifs') || '[]');
+  renderNotificacoes();
+  // Verificar a cada 2 minutos
+  verificarNotificacoes();
+  _notifInterval = setInterval(verificarNotificacoes, 120000);
+}
+
+async function verificarNotificacoes() {
+  try {
+    // Verificar estoque baixo
+    var estoque = await fetch(API + '/api/estoque/alertas', { headers: { 'Authorization': 'Bearer ' + getToken() } }).then(function(r) { return r.json(); });
+    if (estoque && estoque.length > 0) {
+      var criticos = estoque.filter(function(p) { return p.estoque_atual <= 0; });
+      var baixos = estoque.filter(function(p) { return p.estoque_atual > 0; });
+      if (criticos.length > 0) {
+        addNotificacao('danger', 'Estoque Zerado', criticos.length + ' produto(s) com estoque zerado', 'estoque');
+      }
+      if (baixos.length > 0) {
+        addNotificacao('warning', 'Estoque Baixo', baixos.length + ' produto(s) abaixo do minimo', 'estoque');
+      }
+    }
+    // Verificar validade
+    var validade = await fetch(API + '/api/validade/alertas', { headers: { 'Authorization': 'Bearer ' + getToken() } }).then(function(r) { return r.json(); });
+    if (validade) {
+      var vencidos = validade.filter(function(p) { return p.dias_para_vencer <= 0; });
+      var proximos = validade.filter(function(p) { return p.dias_para_vencer > 0 && p.dias_para_vencer <= 7; });
+      if (vencidos.length > 0) {
+        addNotificacao('danger', 'Produtos Vencidos', vencidos.length + ' produto(s) vencido(s)', 'validade');
+      }
+      if (proximos.length > 0) {
+        addNotificacao('warning', 'Validade Proxima', proximos.length + ' produto(s) vencem em ate 7 dias', 'validade');
+      }
+    }
+    if (currentUser && (currentUser.perfil === 'gerente' || currentUser.perfil === 'admin')) {
+      try {
+        var pagar = await api('/api/financeiro/contas-pagar/resumo', { silent: true });
+        var pagarVencidas = resumoQtd(pagar.vencidas);
+        var pagarVencem = resumoQtd(pagar.vencem_7_dias);
+        if (pagarVencidas > 0) addNotificacao('danger', 'Contas a Pagar Vencidas', pagarVencidas + ' conta(s) vencida(s)', 'financeiro');
+        else if (pagarVencem > 0) addNotificacao('warning', 'Contas a Pagar Proximas', pagarVencem + ' conta(s) vencem em 7 dias', 'financeiro');
+        var receber = await api('/api/financeiro/contas-receber/resumo', { silent: true });
+        var receberVencidas = resumoQtd(receber.vencidas);
+        if (receberVencidas > 0) addNotificacao('danger', 'Contas a Receber Atrasadas', receberVencidas + ' conta(s) atrasada(s)', 'financeiro');
+        atualizarBadgeFinanceiro();
+      } catch(e) {}
+    }
+  } catch(e) {}
+}
+
+function addNotificacao(tipo, titulo, texto, pagina) {
+  // Evitar duplicatas recentes (mesmo titulo nos ultimos 5 minutos)
+  var agora = Date.now();
+  var dup = _notificacoes.find(function(n) { return n.titulo === titulo && (agora - n.ts) < 300000; });
+  if (dup) return;
+
+  _notificacoes.unshift({
+    id: agora,
+    tipo: tipo,
+    titulo: titulo,
+    texto: texto,
+    pagina: pagina,
+    ts: agora,
+    lida: false
+  });
+  // Manter no maximo 20
+  if (_notificacoes.length > 20) _notificacoes = _notificacoes.slice(0, 20);
+  localStorage.setItem('peres_notifs', JSON.stringify(_notificacoes));
+  renderNotificacoes();
+  // Toast para novas notificacoes
+  toast(titulo + ': ' + texto, tipo === 'danger' ? 'error' : 'warning');
+}
+
+function renderNotificacoes() {
+  var body = document.getElementById('notifPanelBody');
+  var badge = document.getElementById('notifBadge');
+  if (!body || !badge) return;
+
+  var naoLidas = _notificacoes.filter(function(n) { return !n.lida; }).length;
+  if (naoLidas > 0) {
+    badge.style.display = '';
+    badge.textContent = naoLidas > 9 ? '9+' : naoLidas;
+  } else {
+    badge.style.display = 'none';
+  }
+
+  if (_notificacoes.length === 0) {
+    body.innerHTML = '<div class="notif-empty">Nenhuma notificacao</div>';
+    return;
+  }
+
+  var icons = { danger: '&#x1F534;', warning: '&#x1F7E1;', success: '&#x1F7E2;', info: '&#x1F535;' };
+  body.innerHTML = _notificacoes.map(function(n) {
+    var tempo = formatTempoAtras(n.ts);
+    return '<div class="notif-item' + (n.lida ? '' : ' unread') + '" onclick="clicarNotificacao(' + n.id + ',\'' + (n.pagina || '') + '\')">'
+      + '<span class="notif-icon">' + (icons[n.tipo] || '&#x1F535;') + '</span>'
+      + '<div class="notif-text"><strong>' + n.titulo + '</strong><span>' + n.texto + '</span><br><small class="text-muted">' + tempo + '</small></div></div>';
+  }).join('');
+}
+
+function formatTempoAtras(ts) {
+  var diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60) return 'agora';
+  if (diff < 3600) return Math.floor(diff / 60) + ' min atras';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h atras';
+  return Math.floor(diff / 86400) + 'd atras';
+}
+
+function clicarNotificacao(id, pagina) {
+  _notificacoes = _notificacoes.map(function(n) {
+    if (n.id === id) n.lida = true;
+    return n;
+  });
+  localStorage.setItem('peres_notifs', JSON.stringify(_notificacoes));
+  renderNotificacoes();
+  toggleNotifPanel();
+  if (pagina) navigateTo(pagina);
+}
+
+function toggleNotifPanel() {
+  var panel = document.getElementById('notifPanel');
+  panel.classList.toggle('show');
+}
+
+function limparNotificacoes() {
+  _notificacoes = [];
+  localStorage.setItem('peres_notifs', '[]');
+  renderNotificacoes();
+}
+
+// Fechar painel ao clicar fora
+document.addEventListener('click', function(e) {
+  var panel = document.getElementById('notifPanel');
+  var btn = document.getElementById('notifBtn');
+  if (panel && panel.classList.contains('show') && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+    panel.classList.remove('show');
+  }
+  // Fechar busca global ao clicar fora
+  var searchBox = document.getElementById('globalSearchBox');
+  var results = document.getElementById('globalSearchResults');
+  if (results && results.classList.contains('show') && !searchBox.contains(e.target)) {
+    results.classList.remove('show');
+  }
+});
+
+// ============ BUSCA GLOBAL ============
+var _globalSearchTimer = null;
+
+function globalSearchDebounce() {
+  if (_globalSearchTimer) clearTimeout(_globalSearchTimer);
+  _globalSearchTimer = setTimeout(globalSearchExecute, 300);
+}
+
+function globalSearchFocus() {
+  var input = document.getElementById('globalSearchInput');
+  if (input.value.length >= 2) globalSearchExecute();
+}
+
+async function globalSearchExecute() {
+  var input = document.getElementById('globalSearchInput');
+  var results = document.getElementById('globalSearchResults');
+  var q = input.value.trim();
+
+  if (q.length < 2) {
+    results.classList.remove('show');
+    return;
+  }
+
+  try {
+    var data = await fetch(API + '/api/busca-global?q=' + encodeURIComponent(q), { headers: { 'Authorization': 'Bearer ' + getToken() } }).then(function(r) { return r.json(); });
+    var html = '';
+    var total = (data.produtos || []).length + (data.fornecedores || []).length + (data.vendas || []).length;
+
+    if (total === 0) {
+      html = '<div class="gsr-empty">Nenhum resultado para "' + q + '"</div>';
+    } else {
+      if (data.produtos && data.produtos.length > 0) {
+        html += '<div class="gsr-section-title">Produtos</div>';
+        data.produtos.forEach(function(p) {
+          html += '<div class="gsr-item" onclick="globalSearchGo(\'produtos\',\'' + p.id + '\')">'
+            + '<span class="gsr-icon">&#x1F4E6;</span>'
+            + '<span>' + p.nome + '</span>'
+            + '<span class="gsr-detail">' + formatMoney(p.preco_venda) + ' | Est: ' + (p.estoque_atual || 0) + '</span></div>';
+        });
+      }
+      if (data.fornecedores && data.fornecedores.length > 0) {
+        html += '<div class="gsr-section-title">Fornecedores</div>';
+        data.fornecedores.forEach(function(f) {
+          html += '<div class="gsr-item" onclick="globalSearchGo(\'fornecedores\',\'' + f.id + '\')">'
+            + '<span class="gsr-icon">&#x1F69A;</span>'
+            + '<span>' + f.razao_social + '</span>'
+            + '<span class="gsr-detail">' + (f.cnpj || '') + '</span></div>';
+        });
+      }
+      if (data.vendas && data.vendas.length > 0) {
+        html += '<div class="gsr-section-title">Vendas</div>';
+        data.vendas.forEach(function(v) {
+          html += '<div class="gsr-item" onclick="globalSearchGo(\'vendas\',\'' + v.id + '\')">'
+            + '<span class="gsr-icon">&#x1F4B0;</span>'
+            + '<span>Venda #' + v.numero_venda + '</span>'
+            + '<span class="gsr-detail">' + formatMoney(v.total) + ' - ' + formatDate(v.data_venda) + '</span></div>';
+        });
+      }
+    }
+    html += '<div class="gsr-shortcut">Ctrl+K para buscar rapidamente</div>';
+    results.innerHTML = html;
+    results.classList.add('show');
+  } catch(e) {
+    results.classList.remove('show');
+  }
+}
+
+function globalSearchGo(pagina, id) {
+  document.getElementById('globalSearchResults').classList.remove('show');
+  document.getElementById('globalSearchInput').value = '';
+  navigateTo(pagina);
+}
+
+// ============ NOME DO COMERCIO DINAMICO ============
+var _nomeComercio = localStorage.getItem('peres_nome_comercio') || 'Nome do seu Comercio';
+
+function aplicarNomeComercio(nome) {
+  _nomeComercio = nome;
+  localStorage.setItem('peres_nome_comercio', nome);
+  var letra = nome.charAt(0).toUpperCase();
+
+  // Titulo da aba
+  var titleEl = document.getElementById('pageMainTitle');
+  if (titleEl) titleEl.textContent = nome + ' - Sistema de Gestao';
+
+  // Login
+  var loginNome = document.getElementById('loginNomeComercio');
+  if (loginNome) loginNome.textContent = nome;
+  var loginLetra = document.getElementById('loginLogoLetra');
+  if (loginLetra) loginLetra.textContent = letra;
+
+  // Sidebar
+  var sideNome = document.getElementById('sidebarNomeComercio');
+  if (sideNome) sideNome.textContent = nome;
+  var sideLetra = document.getElementById('sidebarLogoLetra');
+  if (sideLetra) sideLetra.textContent = letra;
+
+  // PDV Tela Cheia
+  var pdvNome = document.getElementById('pdvFullscreenNome');
+  if (pdvNome) pdvNome.textContent = nome;
+}
+
+async function carregarNomeComercio() {
+  try {
+    var config = await fetch(API + '/api/configuracoes', { headers: { 'Authorization': 'Bearer ' + getToken() } }).then(function(r) { return r.json(); });
+    var nome = config.empresa_nome_fantasia || 'Nome do seu Comercio';
+    aplicarNomeComercio(nome);
+  } catch(e) {
+    // Usar cache do localStorage
+    aplicarNomeComercio(_nomeComercio);
+  }
+}
+
+function financeiroTab(tab) {
+  var tabs = ['pagar','receber','fluxo','relatorios'];
+  tabs.forEach(function(t) {
+    var el = document.getElementById('tab' + (t === 'pagar' ? 'Pagar' : t === 'receber' ? 'Receber' : t === 'fluxo' ? 'Fluxo' : 'RelatoriosFin'));
+    if (el) el.style.display = (t === tab) ? 'block' : 'none';
+  });
+  document.querySelectorAll('#page-financeiro .tab').forEach(function(el, i) {
+    el.classList.toggle('active', tabs[i] === tab);
+  });
+  if (tab === 'pagar') carregarContasPagar();
+  else if (tab === 'receber') carregarContasReceber();
+  else if (tab === 'fluxo') {
+    var hoje = new Date();
+    var ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    var el = document.getElementById('fluxoInicio'); if (el && !el.value) el.value = ini.toISOString().slice(0,10);
+    var el2 = document.getElementById('fluxoFim'); if (el2 && !el2.value) el2.value = hoje.toISOString().slice(0,10);
+    carregarFluxoCaixa();
+  } else if (tab === 'relatorios') {
+    var ano = document.getElementById('relatoriosAno');
+    if (ano && !ano.value) ano.value = new Date().getFullYear();
+    carregarRelatoriosFinanceiros();
+  }
+}
+
+async function carregarContasPagar() {
+  try {
+    var status = document.getElementById('filtroStatusPagar');
+    var qs = status && status.value ? '?status=' + status.value : '';
+    var data = await api('/api/financeiro/contas-pagar' + qs);
+    var lista = data.dados || [];
+    var resumo = await api('/api/financeiro/contas-pagar/resumo', { silent: true });
+    document.getElementById('resumoPagar').innerHTML =
+      '<div class="card" style="border-left:4px solid var(--danger)"><div class="text-muted">Vencidas</div><div style="font-size:24px;font-weight:700">' + resumoQtd(resumo.vencidas) + '</div></div>' +
+      '<div class="card" style="border-left:4px solid var(--warning)"><div class="text-muted">Vencem em 7 dias</div><div style="font-size:24px;font-weight:700">' + resumoQtd(resumo.vencem_7_dias) + '</div></div>' +
+      '<div class="card" style="border-left:4px solid var(--primary)"><div class="text-muted">Abertas (total R$)</div><div style="font-size:24px;font-weight:700">' + formatMoney(resumoTotal(resumo.abertas)) + '</div></div>';
+    document.getElementById('contasPagarBody').innerHTML = lista.length
+      ? lista.map(function(c) {
+        var statusCls = c.status === 'atrasado' ? 'status-danger' : (c.status === 'pago' ? 'status-success' : 'status-warning');
+        var acoes = c.status === 'pago'
+          ? '<button class="btn btn-sm btn-outline" onclick="modalContaPagar(' + c.id + ')">Ver</button>'
+          : '<button class="btn btn-sm btn-primary" onclick="pagarConta(' + c.id + ')">Pagar</button> <button class="btn btn-sm btn-outline" onclick="modalContaPagar(' + c.id + ')">Editar</button> <button class="btn btn-sm btn-danger" onclick="excluirContaPagar(' + c.id + ')">Excluir</button>';
+        return '<tr><td><strong>' + c.descricao + '</strong></td><td>' + (c.categoria||'-') + '</td><td>' + formatMoney(c.valor) + '</td><td>' + formatDate(c.vencimento) + '</td><td><span class="status ' + statusCls + '">' + c.status + '</span></td><td>' + acoes + '</td></tr>';
+      }).join('')
+      : '<tr><td colspan="6" class="text-center text-muted" style="padding:30px">Nenhuma conta a pagar</td></tr>';
+  } catch(e) { console.error(e); }
+}
+
+async function modalContaPagar(id) {
+  try {
+    var c = id ? await api('/api/financeiro/contas-pagar/' + id) : { valor: 0, vencimento: new Date().toISOString().slice(0,10) };
+    abrirModal(id ? 'Editar Conta a Pagar' : 'Nova Conta a Pagar',
+      '<form id="formContaPagar">' +
+      '<div class="form-group"><label>Descricao *</label><input class="form-control" name="descricao" value="' + (c.descricao||'') + '" required></div>' +
+      '<div class="form-row"><div class="form-group"><label>Categoria</label><input class="form-control" name="categoria" value="' + (c.categoria||'') + '" placeholder="Ex: Aluguel, Energia"></div>' +
+      '<div class="form-group"><label>Valor *</label><input class="form-control" name="valor" type="number" step="0.01" min="0" value="' + c.valor + '" required></div></div>' +
+      '<div class="form-row"><div class="form-group"><label>Vencimento *</label><input class="form-control" name="vencimento" type="date" value="' + (c.vencimento||'').slice(0,10) + '" required></div>' +
+      '<div class="form-group"><label>Forma de Pagamento</label><input class="form-control" name="forma_pagamento" value="' + (c.forma_pagamento||'') + '"></div></div>' +
+      '<div class="form-group"><label>Observacoes</label><textarea class="form-control" name="observacoes" rows="2">' + (c.observacoes||'') + '</textarea></div>' +
+      '</form>',
+      '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="salvarContaPagar(' + (id||'null') + ')">Salvar</button>');
+  } catch(e) { console.error(e); }
+}
+
+async function salvarContaPagar(id) {
+  var f = document.getElementById('formContaPagar');
+  var d = { descricao: f.descricao.value.trim(), categoria: f.categoria.value || null, valor: Number(f.valor.value), vencimento: f.vencimento.value, forma_pagamento: f.forma_pagamento.value || null, observacoes: f.observacoes.value || null };
+  try {
+    if (id) await api('/api/financeiro/contas-pagar/' + id, { method: 'PUT', body: d });
+    else await api('/api/financeiro/contas-pagar', { method: 'POST', body: d });
+    toast('Conta ' + (id ? 'atualizada' : 'criada'));
+    fecharModal(); carregarContasPagar();
+  } catch(e) {}
+}
+
+async function pagarConta(id) {
+  var ok = await confirmar('Confirmar pagamento desta conta?', { okLabel: 'Pagar' });
+  if (!ok) return;
+  try { await api('/api/financeiro/contas-pagar/' + id + '/pagar', { method: 'POST', body: {} }); toast('Conta paga'); carregarContasPagar(); } catch(e) {}
+}
+
+async function excluirContaPagar(id) {
+  var ok = await confirmar('Excluir esta conta? A operacao nao pode ser desfeita.', { perigoso: true, okLabel: 'Excluir' });
+  if (!ok) return;
+  try { await api('/api/financeiro/contas-pagar/' + id, { method: 'DELETE' }); toast('Conta excluida'); carregarContasPagar(); } catch(e) {}
+}
+
+async function carregarContasReceber() {
+  try {
+    var status = document.getElementById('filtroStatusReceber');
+    var qs = status && status.value ? '?status=' + status.value : '';
+    var data = await api('/api/financeiro/contas-receber' + qs);
+    var lista = data.dados || [];
+    var resumo = await api('/api/financeiro/contas-receber/resumo', { silent: true });
+    document.getElementById('resumoReceber').innerHTML =
+      '<div class="card" style="border-left:4px solid var(--danger)"><div class="text-muted">Vencidas</div><div style="font-size:24px;font-weight:700">' + resumoQtd(resumo.vencidas) + '</div></div>' +
+      '<div class="card" style="border-left:4px solid var(--warning)"><div class="text-muted">Vencem em 3 dias</div><div style="font-size:24px;font-weight:700">' + resumoQtd(resumo.vencem_3_dias) + '</div></div>' +
+      '<div class="card" style="border-left:4px solid var(--success)"><div class="text-muted">Abertas (total R$)</div><div style="font-size:24px;font-weight:700">' + formatMoney(resumoTotal(resumo.abertas)) + '</div></div>';
+    document.getElementById('contasReceberBody').innerHTML = lista.length
+      ? lista.map(function(c) {
+        var statusCls = c.status === 'atrasado' ? 'status-danger' : (c.status === 'recebido' ? 'status-success' : 'status-warning');
+        var acoes = c.status === 'recebido'
+          ? '<button class="btn btn-sm btn-outline" onclick="modalContaReceber(' + c.id + ')">Ver</button>'
+          : '<button class="btn btn-sm btn-primary" onclick="receberConta(' + c.id + ')">Receber</button> <button class="btn btn-sm btn-outline" onclick="modalContaReceber(' + c.id + ')">Editar</button> <button class="btn btn-sm btn-danger" onclick="excluirContaReceber(' + c.id + ')">Excluir</button>';
+        return '<tr><td><strong>' + c.descricao + '</strong></td><td>' + (c.cliente_nome || '-') + '</td><td>' + formatMoney(c.valor) + '</td><td>' + formatDate(c.vencimento) + '</td><td><span class="status ' + statusCls + '">' + c.status + '</span></td><td>' + acoes + '</td></tr>';
+      }).join('')
+      : '<tr><td colspan="6" class="text-center text-muted" style="padding:30px">Nenhuma conta a receber</td></tr>';
+  } catch(e) { console.error(e); }
+}
+
+async function modalContaReceber(id) {
+  try {
+    var c = id ? await api('/api/financeiro/contas-receber/' + id) : { valor: 0, vencimento: new Date().toISOString().slice(0,10) };
+    abrirModal(id ? 'Editar Conta a Receber' : 'Nova Conta a Receber',
+      '<form id="formContaReceber">' +
+      '<div class="form-group"><label>Descricao *</label><input class="form-control" name="descricao" value="' + (c.descricao||'') + '" required></div>' +
+      '<div class="form-row"><div class="form-group"><label>Cliente ID</label><input class="form-control" name="cliente_id" type="number" value="' + (c.cliente_id||'') + '"></div>' +
+      '<div class="form-group"><label>Valor *</label><input class="form-control" name="valor" type="number" step="0.01" min="0" value="' + c.valor + '" required></div></div>' +
+      '<div class="form-row"><div class="form-group"><label>Vencimento *</label><input class="form-control" name="vencimento" type="date" value="' + (c.vencimento||'').slice(0,10) + '" required></div>' +
+      '<div class="form-group"><label>Forma de Recebimento</label><input class="form-control" name="forma_recebimento" value="' + (c.forma_recebimento||'') + '"></div></div>' +
+      '<div class="form-group"><label>Observacoes</label><textarea class="form-control" name="observacoes" rows="2">' + (c.observacoes||'') + '</textarea></div>' +
+      '</form>',
+      '<button class="btn btn-outline" onclick="fecharModal()">Cancelar</button> <button class="btn btn-primary" onclick="salvarContaReceber(' + (id||'null') + ')">Salvar</button>');
+  } catch(e) { console.error(e); }
+}
+
+async function salvarContaReceber(id) {
+  var f = document.getElementById('formContaReceber');
+  var d = { descricao: f.descricao.value.trim(), cliente_id: f.cliente_id.value || null, valor: Number(f.valor.value), vencimento: f.vencimento.value, forma_recebimento: f.forma_recebimento.value || null, observacoes: f.observacoes.value || null };
+  try {
+    if (id) await api('/api/financeiro/contas-receber/' + id, { method: 'PUT', body: d });
+    else await api('/api/financeiro/contas-receber', { method: 'POST', body: d });
+    toast('Conta ' + (id ? 'atualizada' : 'criada'));
+    fecharModal(); carregarContasReceber();
+  } catch(e) {}
+}
+
+async function receberConta(id) {
+  var ok = await confirmar('Confirmar recebimento desta conta?', { okLabel: 'Receber' });
+  if (!ok) return;
+  try { await api('/api/financeiro/contas-receber/' + id + '/receber', { method: 'POST', body: {} }); toast('Conta recebida'); carregarContasReceber(); } catch(e) {}
+}
+
+async function excluirContaReceber(id) {
+  var ok = await confirmar('Excluir esta conta? A operacao nao pode ser desfeita.', { perigoso: true, okLabel: 'Excluir' });
+  if (!ok) return;
+  try { await api('/api/financeiro/contas-receber/' + id, { method: 'DELETE' }); toast('Conta excluida'); carregarContasReceber(); } catch(e) {}
+}
+
+async function carregarFluxoCaixa() {
+  try {
+    var di = document.getElementById('fluxoInicio').value;
+    var df = document.getElementById('fluxoFim').value;
+    var ag = document.getElementById('fluxoAgrupar').value === 'mes' ? 'mensal' : 'diario';
+    var data = await api('/api/financeiro/fluxo-caixa?inicio=' + di + '&fim=' + df + '&agrupamento=' + ag);
+    var linhas = data.dados || data.linhas || [];
+    var tEntrada = 0, tSaida = 0;
+    linhas.forEach(function(l) { tEntrada += Number(l.entradas) || 0; tSaida += Number(l.saidas) || 0; });
+    document.getElementById('fluxoCaixaResumo').innerHTML =
+      '<div class="card" style="border-left:4px solid var(--success)"><div class="text-muted">Total Entradas</div><div style="font-size:24px;font-weight:700">' + formatMoney(tEntrada) + '</div></div>' +
+      '<div class="card" style="border-left:4px solid var(--danger)"><div class="text-muted">Total Saidas</div><div style="font-size:24px;font-weight:700">' + formatMoney(tSaida) + '</div></div>' +
+      '<div class="card" style="border-left:4px solid var(--primary)"><div class="text-muted">Saldo</div><div style="font-size:24px;font-weight:700">' + formatMoney(tEntrada - tSaida) + '</div></div>';
+    document.getElementById('fluxoCaixaBody').innerHTML = linhas.length
+      ? linhas.map(function(l) { return '<tr><td>' + l.periodo + '</td><td>' + formatMoney(l.entradas) + '</td><td>' + formatMoney(l.saidas) + '</td><td>' + formatMoney(l.saldo) + '</td><td><strong>' + formatMoney(l.saldo_acumulado) + '</strong></td></tr>'; }).join('')
+      : '<tr><td colspan="5" class="text-center text-muted" style="padding:30px">Sem movimentacoes no periodo</td></tr>';
+  } catch(e) { console.error(e); }
+}
+
+function exportarFluxoCsv() {
+  var di = document.getElementById('fluxoInicio').value;
+  var df = document.getElementById('fluxoFim').value;
+  var ag = document.getElementById('fluxoAgrupar').value === 'mes' ? 'mensal' : 'diario';
+  var url = '/api/financeiro/fluxo-caixa/csv?inicio=' + di + '&fim=' + df + '&agrupamento=' + ag;
+  fetch(url, { headers: { 'Authorization': 'Bearer ' + getToken() } })
+    .then(function(r) { return r.blob(); })
+    .then(function(blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'fluxo-caixa-' + di + '-' + df + '.csv';
+      a.click();
+    }).catch(function() { toast('Erro ao exportar', 'error'); });
+}
+
+async function carregarRelatoriosFinanceiros() {
+  try {
+    var ano = document.getElementById('relatoriosAno').value || new Date().getFullYear();
+    var desp = await api('/api/financeiro/relatorios/despesas-por-categoria?ano=' + ano, { silent: true });
+    var fat = await api('/api/financeiro/relatorios/faturamento-mensal?ano=' + ano, { silent: true });
+    var resumo = await api('/api/financeiro/relatorios/resumo-anual?ano=' + ano, { silent: true });
+    var resumoVendas = resumoTotal(resumo.vendas);
+    var resumoRecebido = resumoTotal(resumo.recebimentos || resumo.recebido);
+    var resumoPago = resumoTotal(resumo.pagamentos || resumo.pago);
+    var despHtml = '<div class="card"><h4>Despesas por Categoria (' + ano + ')</h4><table><thead><tr><th>Categoria</th><th>Valor</th></tr></thead><tbody>' +
+      (desp.dados || []).map(function(d) { return '<tr><td>' + (d.categoria||'Sem categoria') + '</td><td>' + formatMoney(d.total) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
+    var fatHtml = '<div class="card"><h4>Faturamento Mensal (' + ano + ')</h4><table><thead><tr><th>Mes</th><th>Faturamento</th><th>Ticket Medio</th></tr></thead><tbody>' +
+      (fat.dados || []).map(function(f) {
+        var faturamento = f.faturamento !== undefined ? f.faturamento : f.total;
+        var ticket = f.ticket_medio !== undefined ? f.ticket_medio : (f.qtd > 0 ? faturamento / f.qtd : 0);
+        return '<tr><td>' + f.mes + '</td><td>' + formatMoney(faturamento) + '</td><td>' + formatMoney(ticket) + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+    var resHtml = '<div class="card"><h4>Resumo Anual</h4><div class="cards-grid">' +
+      '<div><div class="text-muted">Vendas</div><div style="font-size:22px;font-weight:700">' + formatMoney(resumoVendas) + '</div></div>' +
+      '<div><div class="text-muted">Recebido</div><div style="font-size:22px;font-weight:700">' + formatMoney(resumoRecebido) + '</div></div>' +
+      '<div><div class="text-muted">Pago</div><div style="font-size:22px;font-weight:700">' + formatMoney(resumoPago) + '</div></div>' +
+      '<div><div class="text-muted">Saldo Liquido</div><div style="font-size:22px;font-weight:700">' + formatMoney(resumoVendas + resumoRecebido - resumoPago) + '</div></div>' +
+      '</div></div>';
+    document.getElementById('relatoriosFinBody').innerHTML = resHtml + despHtml + fatHtml;
+  } catch(e) { console.error(e); }
+}
+
+async function testarImpressora() {
+  try {
+    await api('/api/impressao/teste', { method: 'POST', body: {} });
+    toast('Teste enviado para a impressora');
+  } catch(e) {}
+}
+
+async function imprimirCupomVenda(vendaId) {
+  try {
+    await api('/api/impressao/cupom/' + vendaId, { method: 'POST', body: {} });
+    toast('Cupom enviado');
+  } catch(e) {}
+}
+
+async function atualizarBadgeFinanceiro() {
+  try {
+    var pagar = await api('/api/financeiro/contas-pagar/resumo', { silent: true });
+    var receber = await api('/api/financeiro/contas-receber/resumo', { silent: true });
+    var total = resumoQtd(pagar.vencidas) + resumoQtd(receber.vencidas);
+    var badge = document.getElementById('badgeFinanceiro');
+    if (!badge) return;
+    if (total > 0) { badge.style.display = ''; badge.textContent = total; }
+    else { badge.style.display = 'none'; }
+  } catch(e) {}
+}
+
+initTheme();
+aplicarNomeComercio(_nomeComercio);
+carregarNomeComercio();
 checkLogin();

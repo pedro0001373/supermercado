@@ -303,7 +303,7 @@ router.get('/etiqueta/:id', (req, res) => {
   const produto = db.prepare('SELECT id, nome, codigo_barras, preco_venda, unidade FROM produtos WHERE id = ?').get(req.params.id);
   if (!produto) return res.status(404).json({ error: 'Produto não encontrado' });
   const empresa = db.prepare("SELECT valor FROM configuracoes WHERE chave = 'empresa_nome_fantasia'").get();
-  res.json({ ...produto, empresa: (empresa && empresa.valor) || 'Supermercado Peres' });
+  res.json({ ...produto, empresa: (empresa && empresa.valor) || 'Meu Comercio' });
 });
 
 // ============ CONTROLE DE LOTES ============

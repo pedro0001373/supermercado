@@ -17,25 +17,69 @@ const { dbReady } = require('./models/database');
 dbReady.then(() => {
   console.log('Banco de dados inicializado com sucesso!');
 
-  // Rotas da API
-  app.use('/api/auth', require('./routes/auth'));
-  app.use('/api/produtos', require('./routes/produtos'));
-  app.use('/api/categorias', require('./routes/categorias'));
-  app.use('/api/fornecedores', require('./routes/fornecedores'));
-  app.use('/api/estoque', require('./routes/estoque'));
-  app.use('/api/validade', require('./routes/validade'));
-  app.use('/api/notas-entrada', require('./routes/notasEntrada'));
-  app.use('/api/caixa', require('./routes/caixa'));
-  app.use('/api/vendas', require('./routes/vendas'));
-  app.use('/api/nfce', require('./routes/nfce'));
-  app.use('/api/relatorios', require('./routes/relatorios'));
-  app.use('/api/configuracoes', require('./routes/configuracoes'));
-  app.use('/api/clientes', require('./routes/clientes'));
+  const { authMiddleware } = require('./middleware/authMiddleware');
 
-  // Middleware de erro para API - retorna JSON em vez de HTML
+  // Rotas publicas (login) - auth.js trata internamente quais rotas sao protegidas
+  app.use('/api/auth', require('./routes/auth'));
+
+  // Rotas protegidas - exigem JWT
+  app.use('/api/produtos', authMiddleware, require('./routes/produtos'));
+  app.use('/api/categorias', authMiddleware, require('./routes/categorias'));
+  app.use('/api/fornecedores', authMiddleware, require('./routes/fornecedores'));
+  app.use('/api/estoque', authMiddleware, require('./routes/estoque'));
+  app.use('/api/validade', authMiddleware, require('./routes/validade'));
+  app.use('/api/notas-entrada', authMiddleware, require('./routes/notasEntrada'));
+  app.use('/api/caixa', authMiddleware, require('./routes/caixa'));
+  app.use('/api/vendas', authMiddleware, require('./routes/vendas'));
+  app.use('/api/nfce', authMiddleware, require('./routes/nfce'));
+  app.use('/api/relatorios', authMiddleware, require('./routes/relatorios'));
+  app.use('/api/configuracoes', authMiddleware, require('./routes/configuracoes'));
+  app.use('/api/clientes', authMiddleware, require('./routes/clientes'));
+  app.use('/api/financeiro', authMiddleware, require('./routes/financeiro'));
+  app.use('/api/impressao', authMiddleware, require('./routes/impressao'));
+
+  // Busca global
+  const dbBusca = require('./models/db');
+  app.get('/api/busca-global', authMiddleware, (req, res) => {
+    try {
+      const { q } = req.query;
+      if (!q || q.length < 2) return res.json({ produtos: [], fornecedores: [], vendas: [] });
+      const termo = '%' + q + '%';
+
+      const produtos = dbBusca.prepare(
+        `SELECT id, nome, codigo_barras, preco_venda, estoque_atual FROM produtos WHERE nome LIKE ? OR codigo_barras LIKE ? LIMIT 8`
+      ).all(termo, termo);
+
+      const fornecedores = dbBusca.prepare(
+        `SELECT id, razao_social, cnpj, telefone FROM fornecedores WHERE razao_social LIKE ? OR cnpj LIKE ? LIMIT 5`
+      ).all(termo, termo);
+
+      const vendas = dbBusca.prepare(
+        `SELECT v.id, v.numero_venda, v.total, v.criado_em as data_venda FROM vendas v WHERE v.numero_venda LIKE ? OR CAST(v.id AS TEXT) LIKE ? ORDER BY v.id DESC LIMIT 5`
+      ).all(termo, termo);
+
+      res.json({ produtos, fornecedores, vendas });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 404 para rotas de API nao encontradas
+  app.use('/api', (req, res, next) => {
+    res.status(404).json({ error: 'Endpoint nao encontrado: ' + req.method + ' ' + req.originalUrl });
+  });
+
+  // Middleware global de erros - retorna JSON estruturado em vez de HTML
   app.use('/api', (err, req, res, next) => {
-    console.error('API Error:', err.message);
-    res.status(500).json({ error: err.message });
+    const status = err.status || err.statusCode || 500;
+    const isValidation = err.name === 'ValidationError' || status === 400;
+
+    console.error('[API Error]', req.method, req.originalUrl, '-', err.message);
+    if (status >= 500 && err.stack) console.error(err.stack);
+
+    const body = { error: err.message || 'Erro interno do servidor' };
+    if (isValidation && err.fields) body.fields = err.fields;
+    res.status(status).json(body);
   });
 
   // Rota principal - serve o frontend
@@ -55,7 +99,7 @@ dbReady.then(() => {
       }
     }
     console.log(`===========================================`);
-    console.log(`  SUPERMERCADO PERES - Sistema de Gestão`);
+    console.log(`  SISTEMA DE GESTAO COMERCIAL`);
     console.log(`  Servidor rodando em: http://localhost:${PORT}`);
     if (ips.length > 0) {
       console.log(`  `);

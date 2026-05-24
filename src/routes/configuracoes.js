@@ -1,16 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models/db');
+const cache = require('../utils/cache');
 
-// Listar todas as configurações
+const CACHE_KEY = 'configuracoes:all';
+const TTL = 300;
+
 router.get('/', (req, res) => {
-  const configs = db.prepare(`SELECT * FROM configuracoes ORDER BY chave`).all();
-  const obj = {};
-  for (const c of configs) obj[c.chave] = c.valor;
+  const obj = cache.wrap(CACHE_KEY, TTL, () => {
+    const configs = db.prepare(`SELECT * FROM configuracoes ORDER BY chave`).all();
+    const o = {};
+    for (const c of configs) o[c.chave] = c.valor;
+    return o;
+  });
   res.json(obj);
 });
 
-// Atualizar configurações
 router.put('/', (req, res) => {
   const configs = req.body;
   const stmt = db.prepare(`UPDATE configuracoes SET valor = ? WHERE chave = ?`);
@@ -20,7 +25,8 @@ router.put('/', (req, res) => {
     }
   });
   transaction();
-  res.json({ message: 'Configurações atualizadas' });
+  cache.del(CACHE_KEY);
+  res.json({ message: 'Configuracoes atualizadas' });
 });
 
 module.exports = router;
